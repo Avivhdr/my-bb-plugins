@@ -1,0 +1,29 @@
+/*
+ * Harbor keeps bb's default palette and colors only the desktop window frame:
+ * the top bar, the left nav rail, and the thin right and bottom lips around
+ * the content. The sidebar list and the main content stay neutral.
+ *
+ * bb has no token for the frame, so these rules target the app shell
+ * directly. The desktop app marks the shell with data-framed; the browser
+ * build has no frame, so there only the nav rail gets the color.
+ */
+
+[data-testid="app-layout-root"][data-framed] {
+  background: linear-gradient(135deg, #b4c8e6 0%, #9db4dd 55%, #a7aedf 100%);
+}
+
+[data-testid="app-layout-root"][data-framed] [data-testid="app-nav-rail"] {
+  background: transparent;
+}
+
+[data-testid="app-layout-root"]:not([data-framed]) [data-testid="app-nav-rail"] {
+  background: linear-gradient(180deg, #b4c8e6 0%, #a7aedf 100%);
+}
+
+.dark [data-testid="app-layout-root"][data-framed] {
+  background: linear-gradient(135deg, #22344f 0%, #1f3a5c 55%, #2b3463 100%);
+}
+
+.dark [data-testid="app-layout-root"]:not([data-framed]) [data-testid="app-nav-rail"] {
+  background: linear-gradient(180deg, #22344f 0%, #2b3463 100%);
+}

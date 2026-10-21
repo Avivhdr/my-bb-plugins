@@ -1,0 +1,31 @@
+{
+  "name": "bb-plugin-harbor-theme",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Harbor, the default bb palette with a soft blue gradient on the window frame.",
+  "engines": {
+    "bb": ">=0.43",
+    "bbPluginSdk": ">=0.5.9"
+  },
+  "bb": {
+    "name": "Harbor Theme",
+    "description": "Harbor, the default bb palette with a soft blue gradient on the window frame.",
+    "branding": {
+      "icon": "Palette"
+    },
+    "server": "./server.ts",
+    "skills": [],
+    "themes": [
+      {
+        "id": "harbor",
+        "name": "Harbor",
+        "description": "Default bb colors with a soft blue gradient on the window frame",
+        "css": "./themes/harbor.css"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.37"
+  }
+}
