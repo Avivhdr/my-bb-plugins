@@ -1,0 +1,72 @@
+/* Additive, inert decoration only. BB owns the native frame and its controls. */
+.compose-speed-layer {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  contain: layout style;
+}
+.compose-speed-layer * {
+  pointer-events: none;
+}
+.compose-speed-frame {
+  position: absolute;
+}
+.compose-speed-fill {
+  width: 100%;
+  height: 100%;
+}
+.compose-speed-layer .electric-border,
+.compose-speed-layer .border-glow-card {
+  width: 100%;
+  height: 100%;
+}
+.compose-speed-layer .electric-border {
+  outline: 1px solid color-mix(in srgb, var(--compose-speed-color) 30%, transparent);
+}
+.compose-speed-layer .border-glow-card.compose-speed-glow {
+  --edge-proximity: 100;
+  --cursor-angle: var(--compose-corner-angle, 45deg);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.compose-speed-layer .border-glow-inner {
+  height: 100%;
+  overflow: visible;
+}
+.compose-speed-layer .border-glow-card.compose-speed-glow::before {
+  /* Keep the mesh on a one-pixel ring; never paint over BB-owned content. */
+  mask-image:
+    conic-gradient(from var(--cursor-angle) at center, #000 25%, transparent 40% 60%, #000 75%),
+    linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-clip: border-box, content-box, border-box;
+  mask-composite: intersect, exclude;
+}
+.compose-speed-layer .border-glow-card.compose-speed-glow--opposite::before {
+  mask-image:
+    repeating-conic-gradient(
+      from var(--cursor-angle) at center,
+      #000 0% 12.5%,
+      transparent 20% 30%,
+      #000 37.5% 50%
+    ),
+    linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+}
+.compose-speed-layer .border-glow-card.compose-speed-glow--opposite > .edge-light {
+  mask-image: repeating-conic-gradient(
+    from var(--cursor-angle) at center,
+    #000 0% 1.25%,
+    transparent 5% 45%,
+    #000 48.75% 50%
+  );
+}
+.compose-speed-layer[data-theme="light"] .edge-light {
+  mix-blend-mode: multiply;
+}
+@media (prefers-reduced-motion: reduce) {
+  .compose-speed-layer .border-glow-card::before,
+  .compose-speed-layer .border-glow-card::after,
+  .compose-speed-layer .edge-light {
+    transition: none;
+  }
+}

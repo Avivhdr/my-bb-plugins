@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "@pierre/diffs": ["./node_modules/@pierre/diffs"],
+      "@pierre/diffs/react": ["./node_modules/@pierre/diffs/dist/react/index.d.ts"],
+      "vitest": ["./node_modules/vitest"],
+      "@testing-library/react": ["./node_modules/@testing-library/react"]
+    },
+    "noEmit": true,
+    "skipLibCheck": false,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "core",
+    "github",
+    "refresh",
+    "merge",
+    "queue",
+    "review",
+    "ui",
+    "components",
+    "lib",
+    "test",
+    "../review-ui"
+  ]
+}

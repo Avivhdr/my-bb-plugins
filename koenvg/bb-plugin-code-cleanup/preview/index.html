@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code Cleanup · isolated Settings fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --foreground: #262626;
+        --background: #fff;
+        --muted: #f5f5f5;
+        --muted-foreground: #656565;
+        --border: #dedede;
+        --input: #a6a6a6;
+        --ring: #333;
+        --radius: 6px;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --foreground: #eee;
+        --background: #181818;
+        --muted: #242424;
+        --muted-foreground: #b0b0b0;
+        --border: #454545;
+        --input: #777;
+        --ring: #ddd;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--background);
+        color: var(--foreground);
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 960px;
+        margin: auto;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      .fixture {
+        border: 1px solid var(--border);
+        padding: 12px;
+        margin-bottom: 24px;
+      }
+      nav {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      a {
+        color: inherit;
+      }
+      @media (max-width: 480px) {
+        body {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Code Cleanup</h1>
+      <aside class="fixture">
+        <strong>Isolated fixture, not live BB Settings</strong>
+        <p>
+          This is the actual plugin app. Saves change temporary fake-host SQLite only. Restart the
+          preview to reset all fixture choices.
+        </p>
+        <p>
+          Click a project name to open its prompt dialog. Save closes after persistence; Reset saves
+          immediately and stays open. Cancel protects unsaved edits.
+        </p>
+        <nav>
+          <a href="/?scenario=refresh-failure">Refresh failure</a>
+          <a href="/">Normal</a><a href="/?scenario=empty">No projects</a
+          ><a href="/?scenario=load-failure">Load failure</a
+          ><a href="/?scenario=save-failure">Save failure</a
+          ><a href="/?scenario=slow">Slow requests</a
+          ><button onclick="history.replaceState(null, '', '/')">Recover fixture requests</button
+          ><button
+            onclick="
+              document.documentElement.dataset.theme =
+                document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'
+            "
+          >
+            Change fixture theme
+          </button>
+        </nav>
+      </aside>
+      <div id="app"></div>
+    </main>
+    <script type="module" src="/preview/main.tsx"></script>
+  </body>
+</html>

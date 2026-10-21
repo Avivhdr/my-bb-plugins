@@ -1,0 +1,2 @@
+# Raw exactness fixture deliberately keeps CRLF and trailing code/source spaces.
+tests/fixtures/navigation.md -text whitespace=-blank-at-eol,cr-at-eol

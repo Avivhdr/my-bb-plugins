@@ -1,0 +1,132 @@
+{
+  "data": {
+    "viewer": {
+      "login": "me"
+    },
+    "reviewRequests": {
+      "issueCount": 4,
+      "nodes": [
+        {
+          "number": 12,
+          "title": "Add retries",
+          "url": "https://github.com/acme/api/pull/12",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": false,
+          "createdAt": "2026-09-30T08:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z",
+          "author": {
+            "login": "alice"
+          },
+          "repository": {
+            "nameWithOwner": "acme/api"
+          },
+          "headRefName": "alice/retries",
+          "headRefOid": "a12a12a12a12a12a12a12a12a12a12a12a12a12a",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 7,
+          "title": "Dark mode",
+          "url": "https://github.com/acme/web/pull/7",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": true,
+          "createdAt": "2026-09-29T08:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z",
+          "author": {
+            "login": "bob"
+          },
+          "repository": {
+            "nameWithOwner": "acme/web"
+          },
+          "headRefName": "bob/dark-mode",
+          "headRefOid": "b07b07b07b07b07b07b07b07b07b07b07b07b07b",
+          "reviewDecision": "CHANGES_REQUESTED",
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "FAILURE"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 15,
+          "title": "Add rate limits",
+          "url": "https://github.com/acme/api/pull/15",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": false,
+          "createdAt": "2026-10-01T08:00:00Z",
+          "updatedAt": "2026-10-02T09:55:00Z",
+          "author": null,
+          "repository": {
+            "nameWithOwner": "acme/api"
+          },
+          "headRefName": "rate-limits",
+          "headRefOid": "c15c15c15c15c15c15c15c15c15c15c15c15c15c",
+          "reviewDecision": "APPROVED",
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "PENDING"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 3,
+          "title": "Fix typo",
+          "url": "https://github.com/acme/docs/pull/3",
+          "state": "OPEN",
+          "mergedAt": null,
+          "closedAt": null,
+          "isDraft": false,
+          "createdAt": "2026-10-02T08:00:00Z",
+          "updatedAt": "2026-10-02T08:30:00Z",
+          "author": {
+            "login": "me"
+          },
+          "repository": {
+            "nameWithOwner": "acme/docs"
+          },
+          "headRefName": "me/typo",
+          "headRefOid": "d03d03d03d03d03d03d03d03d03d03d03d03d03d",
+          "reviewDecision": null,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": null
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

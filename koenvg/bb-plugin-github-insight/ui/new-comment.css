@@ -1,0 +1,27 @@
+.review-comment-new {
+  --review-comment-new-tone: var(--timeline-accent);
+  position: relative;
+}
+
+.review-comment-new::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 6px;
+  pointer-events: none;
+  border: 2px solid color-mix(in oklab, var(--review-comment-new-tone) 75%, var(--border));
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--review-comment-new-tone) 18%, transparent);
+  animation: review-comment-new-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes review-comment-new-pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--review-comment-new-tone) 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-comment-new::before {
+    animation: none;
+  }
+}

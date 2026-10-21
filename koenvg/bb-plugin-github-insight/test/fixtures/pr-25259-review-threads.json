@@ -1,0 +1,161 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "headRefOid": "e1d2e91f55e6b7e2f7a433014fd0d2bee87215cb",
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": [
+            {
+              "id": "PRRT_kwDOHI7l-86jvKxS",
+              "isResolved": true,
+              "isOutdated": true,
+              "path": "apps/shell/e2e/utils/elements/createTreeGrid.ts",
+              "line": null,
+              "originalLine": 151,
+              "diffSide": "RIGHT",
+              "comments": {
+                "totalCount": 2,
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOHI7l-87xM22e",
+                    "author": {
+                      "login": "wiz-22f56a2082"
+                    },
+                    "body": "SAST Finding\n\n**Non-literal regular expression usage leading to ReDoS vulnerability** (CWE-185)",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T12:24:25Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4046679454",
+                    "diffHunk": "@@ -144,7 +146,9 @@ export const createTreeGrid = ({\n           .getByText(cellText, { exact: true }),\n       })\n       .filter({\n-        has: page.locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`, { hasText: typeOrSymbol }),\n+        has: page\n+          .locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`)\n+          .getByText(new RegExp(`^\\\\s*${escapeRegExp(typeOrSymbol)}\\\\s*$`, 'i')),"
+                  },
+                  {
+                    "id": "PRRC_kwDOHI7l-87xNizU",
+                    "author": {
+                      "login": "RuslanPleskunCollibra"
+                    },
+                    "body": "False positive.\r\n\r\nThe interpolated value is escaped with the shared `escapeRegExp` helper, so no regex\r\nmetacharacters can be injected. The resulting pattern `^\\s*<literal>\\s*$` contains no nested or\r\noverlapping quantifiers, which is what ReDoS requires. The value is also trimmed, so the literal\r\ncannot begin or end with whitespace and each `\\s*` has exactly one possible match — the pattern\r\nis linear with no backtracking.\r\n\r\n`typeOrSymbol` is a Collibra asset type name that comes from a Playwright test fixture or a\r\nhardcoded string in a test file. This is E2E test code: it never processes user- or\r\nnetwork-supplied input, and the match target is the text of a single grid cell.\r\n\r\nThe same `new RegExp(... escapeRegExp(...) ...)` construction is already used on main in\r\ncreateLifecycleTrackerComponent.ts, createDmHorizontalFiltersSettingsPage.ts (also with the `i`\r\nflag), createDmSettingsFeaturedPage.ts and create-row-filters.page.ts, so this is not a new\r\npattern introduced by this PR.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T12:49:36Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4046859476",
+                    "diffHunk": "@@ -144,7 +146,9 @@ export const createTreeGrid = ({\n           .getByText(cellText, { exact: true }),\n       })\n       .filter({\n-        has: page.locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`, { hasText: typeOrSymbol }),\n+        has: page\n+          .locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`)\n+          .getByText(new RegExp(`^\\\\s*${escapeRegExp(typeOrSymbol)}\\\\s*$`, 'i')),"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOHI7l-86jxqt3",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "apps/shell/e2e/utils/elements/createTreeGrid.ts",
+              "line": 151,
+              "originalLine": 151,
+              "diffSide": "RIGHT",
+              "comments": {
+                "totalCount": 2,
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOHI7l-87xQlvq",
+                    "author": {
+                      "login": "a-bandziuk"
+                    },
+                    "body": "This flips the AssetType predicate from substring (hasText) to anchored full-text. Any caller passing a prefix of the rendered label silently goes from matching to matching nothing.\n\nIt backs two exported helpers (getRowByModelNameAndType, getRowByModelFullNameAndType), which fan out via createDomainPage.clickAssetLinkByNameAndType, assetValidationHelper.ts:87 and modelVerificationHelper.ts:36 to ~90 references across 12 integration suites (bedrock, anthropic, dataplex, sagemaker, databricks, snowflake, vertex, thoughtspot, openai, sap-ai, mlflow, azure).\n\nCould you please check that other test suites are not affected?",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T14:31:50Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4047657962",
+                    "diffHunk": "@@ -144,7 +146,9 @@ export const createTreeGrid = ({\n           .getByText(cellText, { exact: true }),\n       })\n       .filter({\n-        has: page.locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`, { hasText: typeOrSymbol }),\n+        has: page\n+          .locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`)\n+          .getByText(new RegExp(`^\\\\s*${escapeRegExp(typeOrSymbol.trim())}\\\\s*$`, 'i')),"
+                  },
+                  {
+                    "id": "PRRC_kwDOHI7l-87xSEuq",
+                    "author": {
+                      "login": "RuslanPleskunCollibra"
+                    },
+                    "body": "Checked. Of 83 distinct type values reaching the predicate, only 6 are a prefix of another type,\r\nso those are the only places semantics change:\r\n\r\n- 'AI Agent' -> 'AI Agent Tool'/'AI Agent Version' (bedrock, anthropic, databricks, snowflake,\r\n  vertex): affected, and this is the bug being fixed. Cortex was opening the AI Agent Version\r\n  asset because both are named \"Agent for automated tests\", so the substring match made the row\r\n  ambiguous and .first() picked the wrong one.\r\n- 'Database' -> 'Database View' (databricks, vertex): affected. Distinct types, so anchored is\r\n  correct.\r\n- 'Sigma Workbook', 'F', 'DIR': not affected. Sigma reaches the predicate in 0 files; 'F'/'DIR'\r\n  only appear in commented-out fixture lines (gcs:274, adls:237).\r\n- 'ThoughtSpot Answer': not affected. The only thoughtspot file reaching the predicate\r\n  (thoughtspotTechnicalLineageSync.test.ts:246) passes the long form.\r\n\r\nAlso: sigma, adls, gcs, s3, fabric and signavio reach the predicate in 0 files.\r\n\r\nIt's an anchored regex with 'i' rather than { exact: true } because exact matching is\r\ncase-sensitive and broke SageMaker — fixtures say 'AWS SageMaker ...', the product renders\r\n'AWS Sagemaker ...'.\r\n\r\nGreen: sagemaker (x2), cortex, vertex, azure #1, databricks-outbound. Not yet run: bedrock,\r\nanthropic, dataplex, databricks-ai, snowflake-listings, mlflow, thoughtspot-lineage, openai,\r\nsap-ai — happy to gate those on CI, or run specific ones if you'd prefer.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T15:17:34Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4048047018",
+                    "diffHunk": "@@ -144,7 +146,9 @@ export const createTreeGrid = ({\n           .getByText(cellText, { exact: true }),\n       })\n       .filter({\n-        has: page.locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`, { hasText: typeOrSymbol }),\n+        has: page\n+          .locator(`[role=\"gridcell\"][col-id=\"AssetType\"]`)\n+          .getByText(new RegExp(`^\\\\s*${escapeRegExp(typeOrSymbol.trim())}\\\\s*$`, 'i')),"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOHI7l-86jxula",
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "apps/shell/e2e/catalog/integrations/components/asset/generic-configuration/createDatabricksOutboundSyncConfigurationComponent.ts",
+              "line": 46,
+              "originalLine": 44,
+              "diffSide": "RIGHT",
+              "comments": {
+                "totalCount": 2,
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOHI7l-87xQrkh",
+                    "author": {
+                      "login": "a-bandziuk"
+                    },
+                    "body": "There's no wait for the new row to mount between this Add click and the .last() lookups on lines 48/50. Playwright's auto-waiting doesn't help: the previous row's input is already visible, enabled and editable, so .last() resolves to it and the fill succeeds against the wrong element instead of retrying.\n\nThis fires in the test's own second step (databricksOutboundRegisterFromIntegrationsPage.test.ts:176-179): attributeToTag already holds one row, and if React hasn't committed row 2 yet, govern_tag overwrites regular_tag and one row is saved instead of two.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T14:34:40Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4047681825",
+                    "diffHunk": "@@ -1,32 +1,75 @@\n-import { createCombobox } from '@frontend/e2e-utils';\n-\n import type { Page } from '@playwright/test';\n \n+export const DATABRICKS_OUTBOUND_MAPPING_HEADINGS = {\n+  attributeToTag: 'Collibra attribute to Databricks tag mappings',\n+  propertyToProperty: 'Collibra property to Databricks property mappings',\n+  assetStatusToTag: 'Collibra asset status to Databricks tag mappings',\n+  articulationScoreToTag: 'Collibra asset articulation score to Databricks tag mappings',\n+  averageRatingToTag: 'Collibra asset average rating to Databricks tag mappings',\n+  tagToTag: 'Collibra tag to Databricks tag mappings',\n+  responsibilityToTag: 'Collibra responsibility to Databricks tag mappings',\n+  dataClassificationToTag: 'Collibra data classification to Databricks tag mappings',\n+} as const;\n+\n+export interface OutboundMappingField {\n+  label: string;\n+  value: string;\n+  /**\n+   * These widgets look alike but accept input differently, so the kind has to be declared per field.\n+   *\n+   * text   — plain rjsf string input; filled directly.\n+   * pick   — readonly autocomplete (`Mui-readOnly`, e.g. 'Asset'); cannot be typed into, so it is\n+   *          opened by clicking and the value is chosen from the listbox.\n+   * search — editable autocomplete (e.g. 'Attribute'); typed into to filter, then chosen.\n+   * commit — editable autocomplete whose listbox renders the match as a disabled button, so the\n+   *          option is not clickable and the typed value is committed with Enter.\n+   */\n+  kind: 'text' | 'pick' | 'search' | 'commit';\n+}\n+\n export const createDatabricksOutboundSyncConfigurationComponent = (page: Page) => {\n   const parentContainer = page.getByRole('tabpanel');\n \n-  const tagMappingsContainer = parentContainer\n-    .getByRole('heading', {\n-      name: 'Tag Mappings',\n-    })\n-    .locator('../..');\n-  const addTagMappingButton = parentContainer.getByRole('button', {\n-    name: 'Add Tag Mapping',\n-  });\n-  const assetTypeCombobox = parentContainer.getByRole('combobox', { name: 'Asset' });\n-  const attributeCombobox = parentContainer.getByRole('combobox');\n-  const tagKeyInput = parentContainer.getByRole('textbox');\n-  const attributeFieldFirstInput = createCombobox(tagMappingsContainer, 'Select');\n-  const attributeFieldSecondInput = createCombobox(tagMappingsContainer, 'Select', true, 1);\n+  // TODO: Try to improve. No accessible locator available — rjsf wraps each mapping section in an\n+  // unlabelled <div>, so the section is reached by traversing up from its heading. The heading is\n+  // matched exactly because seven of the eight sections share the \"to Databricks tag mappings\" suffix.\n+  const outboundMappingSection = (heading: string) =>\n+    parentContainer.getByRole('heading', { name: heading, exact: true }).locator('../..');\n+  const addOutboundMappingButton = (heading: string) =>\n+    outboundMappingSection(heading).getByRole('button', { name: /^Add/ });\n+\n+  const addOutboundMapping = async (heading: string, fields: OutboundMappingField[]): Promise<void> => {\n+    const section = outboundMappingSection(heading);\n+\n+    await addOutboundMappingButton(heading).click();"
+                  },
+                  {
+                    "id": "PRRC_kwDOHI7l-87xSFQS",
+                    "author": {
+                      "login": "RuslanPleskunCollibra"
+                    },
+                    "body": "Fixed — without an assertion, since expects belong in test files and can't be encapsulated in\r\ncomponents.\r\n\r\n  const rows = section.getByRole('button', { name: /^Remove/ });\r\n  const rowCountBeforeAdd = await rows.count();\r\n  await addOutboundMappingButton(heading).click();\r\n  await rows.nth(rowCountBeforeAdd).waitFor({ state: 'visible' });\r\n\r\nnth(rowCountBeforeAdd) is the row just added, so the .last() lookups can no longer resolve to the\r\nprevious row.\r\n\r\nIt would have failed rather than saved silently — the verification step asserts both regular_tag\r\nand govern_tag are present — but still a flake worth removing.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T15:17:49Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4048049170",
+                    "diffHunk": "@@ -1,32 +1,75 @@\n-import { createCombobox } from '@frontend/e2e-utils';\n-\n import type { Page } from '@playwright/test';\n \n+export const DATABRICKS_OUTBOUND_MAPPING_HEADINGS = {\n+  attributeToTag: 'Collibra attribute to Databricks tag mappings',\n+  propertyToProperty: 'Collibra property to Databricks property mappings',\n+  assetStatusToTag: 'Collibra asset status to Databricks tag mappings',\n+  articulationScoreToTag: 'Collibra asset articulation score to Databricks tag mappings',\n+  averageRatingToTag: 'Collibra asset average rating to Databricks tag mappings',\n+  tagToTag: 'Collibra tag to Databricks tag mappings',\n+  responsibilityToTag: 'Collibra responsibility to Databricks tag mappings',\n+  dataClassificationToTag: 'Collibra data classification to Databricks tag mappings',\n+} as const;\n+\n+export interface OutboundMappingField {\n+  label: string;\n+  value: string;\n+  /**\n+   * These widgets look alike but accept input differently, so the kind has to be declared per field.\n+   *\n+   * text   — plain rjsf string input; filled directly.\n+   * pick   — readonly autocomplete (`Mui-readOnly`, e.g. 'Asset'); cannot be typed into, so it is\n+   *          opened by clicking and the value is chosen from the listbox.\n+   * search — editable autocomplete (e.g. 'Attribute'); typed into to filter, then chosen.\n+   * commit — editable autocomplete whose listbox renders the match as a disabled button, so the\n+   *          option is not clickable and the typed value is committed with Enter.\n+   */\n+  kind: 'text' | 'pick' | 'search' | 'commit';\n+}\n+\n export const createDatabricksOutboundSyncConfigurationComponent = (page: Page) => {\n   const parentContainer = page.getByRole('tabpanel');\n \n-  const tagMappingsContainer = parentContainer\n-    .getByRole('heading', {\n-      name: 'Tag Mappings',\n-    })\n-    .locator('../..');\n-  const addTagMappingButton = parentContainer.getByRole('button', {\n-    name: 'Add Tag Mapping',\n-  });\n-  const assetTypeCombobox = parentContainer.getByRole('combobox', { name: 'Asset' });\n-  const attributeCombobox = parentContainer.getByRole('combobox');\n-  const tagKeyInput = parentContainer.getByRole('textbox');\n-  const attributeFieldFirstInput = createCombobox(tagMappingsContainer, 'Select');\n-  const attributeFieldSecondInput = createCombobox(tagMappingsContainer, 'Select', true, 1);\n+  // TODO: Try to improve. No accessible locator available — rjsf wraps each mapping section in an\n+  // unlabelled <div>, so the section is reached by traversing up from its heading. The heading is\n+  // matched exactly because seven of the eight sections share the \"to Databricks tag mappings\" suffix.\n+  const outboundMappingSection = (heading: string) =>\n+    parentContainer.getByRole('heading', { name: heading, exact: true }).locator('../..');\n+  const addOutboundMappingButton = (heading: string) =>\n+    outboundMappingSection(heading).getByRole('button', { name: /^Add/ });\n+\n+  const addOutboundMapping = async (heading: string, fields: OutboundMappingField[]): Promise<void> => {\n+    const section = outboundMappingSection(heading);\n+\n+    await addOutboundMappingButton(heading).click();"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_kwDOHI7l-86jx0SN",
+              "isResolved": false,
+              "isOutdated": true,
+              "path": "apps/shell/e2e/catalog/integrations/components/helpers/clickWithScrollHelper.ts",
+              "line": null,
+              "originalLine": 32,
+              "diffSide": "RIGHT",
+              "comments": {
+                "totalCount": 2,
+                "nodes": [
+                  {
+                    "id": "PRRC_kwDOHI7l-87xQ0QN",
+                    "author": {
+                      "login": "a-bandziuk"
+                    },
+                    "body": "playwrightBaseConfig.ts:94 sets actionTimeout: isCI ? SECS_30 : SECS_5. Pinning the action to SECS_10 here overrides that in both directions: 30s → 10s on CI (the 30s is deliberate slack for loaded runners) and 5s → 10s locally.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T14:39:06Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4047717389",
+                    "diffHunk": "@@ -10,22 +14,31 @@ import type { Locator } from '@playwright/test';\n  * scrolled. Trying only the top and the bottom is not enough either, because a row in the\n  * middle of a long list is rendered by neither, so the whole container is walked one\n  * viewport at a time.\n+ *\n  */\n const withRowRendered = async (\n   locator: Locator,\n   scrollBarElement: Locator,\n   description: string,\n-  onRendered: () => Promise<void>,\n+  onRendered: (options: ActionOptions) => Promise<void>,\n ): Promise<void> => {\n   // Kept so the final throw can report why the element never became usable,\n   // instead of swallowing the underlying Playwright error.\n   let lastError: unknown;\n \n-  try {\n-    await onRendered();\n+  const attempt = async (probeTimeout: number): Promise<boolean> => {\n+    try {\n+      await locator.waitFor({ state: 'visible', timeout: probeTimeout });\n+      await onRendered({ timeout: TimeoutValues.SECS_10 });"
+                  },
+                  {
+                    "id": "PRRC_kwDOHI7l-87xSFlT",
+                    "author": {
+                      "login": "RuslanPleskunCollibra"
+                    },
+                    "body": "Agreed, removed. The action no longer passes a timeout, so playwrightBaseConfig's actionTimeout\r\napplies and CI keeps its 30s slack. It was bounding the rare detached-row case, which isn't worth\r\noverriding project config for — the visibility probe already removes the expensive miss path.",
+                    "bodyHTML": "",
+                    "createdAt": "2026-09-18T15:18:00Z",
+                    "url": "https://github.com/collibra/frontend/pull/25259#discussion_r4048050515",
+                    "diffHunk": "@@ -10,22 +14,31 @@ import type { Locator } from '@playwright/test';\n  * scrolled. Trying only the top and the bottom is not enough either, because a row in the\n  * middle of a long list is rendered by neither, so the whole container is walked one\n  * viewport at a time.\n+ *\n  */\n const withRowRendered = async (\n   locator: Locator,\n   scrollBarElement: Locator,\n   description: string,\n-  onRendered: () => Promise<void>,\n+  onRendered: (options: ActionOptions) => Promise<void>,\n ): Promise<void> => {\n   // Kept so the final throw can report why the element never became usable,\n   // instead of swallowing the underlying Playwright error.\n   let lastError: unknown;\n \n-  try {\n-    await onRendered();\n+  const attempt = async (probeTimeout: number): Promise<boolean> => {\n+    try {\n+      await locator.waitFor({ state: 'visible', timeout: probeTimeout });\n+      await onRendered({ timeout: TimeoutValues.SECS_10 });"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

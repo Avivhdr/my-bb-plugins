@@ -1,0 +1,13 @@
+# Merge the host-specific ingress rules before wildcard routes into the operator's existing named-tunnel config.
+# Replace the fixture UUID, hostname, Host header and port before use.
+tunnel: 00000000-0000-4000-8000-000000000001
+ingress:
+  - hostname: mcp.example.org
+    path: ^/(mcp|\.well-known/oauth-protected-resource(/mcp)?)$
+    service: http://127.0.0.1:38991
+    originRequest:
+      httpHostHeader: mcp.example.org
+  # Keep this host-only rejection before any existing wildcard route.
+  - hostname: mcp.example.org
+    service: http_status:404
+  - service: http_status:404

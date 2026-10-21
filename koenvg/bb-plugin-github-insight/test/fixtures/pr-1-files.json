@@ -1,0 +1,39 @@
+[
+  [
+    {
+      "sha": "1fdbcd8f2e3f5f76e063597a8a1650b1bc61008d",
+      "filename": "plugins/github-insight/app.tsx",
+      "status": "added",
+      "additions": 11,
+      "deletions": 0,
+      "changes": 11,
+      "blob_url": "https://github.com/koenvangeert/bb-plugins/blob/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fapp.tsx",
+      "raw_url": "https://github.com/koenvangeert/bb-plugins/raw/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fapp.tsx",
+      "contents_url": "https://api.github.com/repos/koenvangeert/bb-plugins/contents/plugins%2Fgithub-insight%2Fapp.tsx?ref=3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70",
+      "patch": "@@ -0,0 +1,11 @@\n+import { definePluginApp } from \"@get-bb/plugin-sdk/app\";\n+import { PrTab } from \"./ui/pr-tab\";\n+\n+export default definePluginApp((app) => {\n+  app.slots.threadPanelAction({\n+    id: \"pr\",\n+    title: \"PR\",\n+    layout: \"padded\",\n+    component: PrTab,\n+  });\n+});"
+    },
+    {
+      "sha": "6a699cbe82c71088e7b3ba0e2819878fad4f0074",
+      "filename": "plugins/github-insight/core/pr-ref.ts",
+      "status": "added",
+      "additions": 21,
+      "deletions": 0,
+      "changes": 21,
+      "blob_url": "https://github.com/koenvangeert/bb-plugins/blob/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fcore%2Fpr-ref.ts",
+      "raw_url": "https://github.com/koenvangeert/bb-plugins/raw/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fcore%2Fpr-ref.ts",
+      "contents_url": "https://api.github.com/repos/koenvangeert/bb-plugins/contents/plugins%2Fgithub-insight%2Fcore%2Fpr-ref.ts?ref=3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70",
+      "patch": "@@ -0,0 +1,21 @@\n+export interface PullRequestRef {\n+  owner: string;\n+  repo: string;\n+  number: number;\n+}\n+\n+const PR_PATH = /^\\/([^/]+)\\/([^/]+)\\/pull\\/(\\d+)\\/?$/;\n+\n+export function parsePullRequestUrl(url: string): PullRequestRef | null {\n+  let parsed: URL;\n+  try {\n+    parsed = new URL(url);\n+  } catch {\n+    return null;\n+  }\n+  if (parsed.hostname !== \"github.com\") return null;\n+  const match = PR_PATH.exec(parsed.pathname);\n+  if (match === null) return null;\n+  const [, owner, repo, number] = match;\n+  return { owner: owner!, repo: repo!, number: Number(number) };\n+}"
+    },
+    {
+      "sha": "5e36dc73fe86daee7b26d4880861918098f56e90",
+      "filename": "plugins/github-insight/package-lock.json",
+      "status": "added",
+      "additions": 4463,
+      "deletions": 0,
+      "changes": 4463,
+      "blob_url": "https://github.com/koenvangeert/bb-plugins/blob/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fpackage-lock.json",
+      "raw_url": "https://github.com/koenvangeert/bb-plugins/raw/3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70/plugins%2Fgithub-insight%2Fpackage-lock.json",
+      "contents_url": "https://api.github.com/repos/koenvangeert/bb-plugins/contents/plugins%2Fgithub-insight%2Fpackage-lock.json?ref=3d94a5d4ddf1640c52f359f359a68ccf9fc1cf70"
+    }
+  ]
+]

@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/bun.lock",
+    ".claude/**",
+    ".pi/**",
+    ".impeccable/**",
+    "openspec/changes/archive/**",
+    "**/test/fixtures/**",
+    "**/tests/fixtures/**",
+    "**/__snapshots__/**"
+  ]
+}

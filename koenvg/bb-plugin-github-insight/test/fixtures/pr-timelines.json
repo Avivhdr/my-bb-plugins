@@ -1,0 +1,606 @@
+{
+  "cli-14578": {
+    "data": {
+      "viewer": {
+        "login": "williammartin"
+      },
+      "repository": {
+        "pullRequest": {
+          "id": "PR_kwDODKw3uc8AAAABGUJatA",
+          "body": "<!--\nThank you for contributing to GitHub CLI!\n\nIf you are proposing a fix for a security issue, STOP and follow .github/SECURITY.md instead.\n\nKeep the entire pull request self-contained, reviewer-facing, and diegetic: describe the\nchange, rationale, and evidence within the conte\u2026",
+          "bodyHTML": "",
+          "author": {
+            "login": "williammartin"
+          },
+          "createdAt": "2026-10-02T16:16:44Z",
+          "locked": false,
+          "viewerCanUpdate": false,
+          "timelineItems": {
+            "pageInfo": {
+              "hasPreviousPage": false,
+              "startCursor": "Y3Vyc29yOnYyOpPPAAABoP1ltAAH2gAzNDcxODc0NjI5MjplMTVlNDBkMDk5YmIwOWM2MmM0YmM1NDlhMGQ1ODM5NzkxN2VmYjQ1"
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKGUxNWU0MGQwOTliYjA5YzYyYzRiYzU0OWEwZDU4Mzk3OTE3ZWZiNDU",
+                "commit": {
+                  "oid": "e15e40d099bb09c62c4bc549a0d58397917efb45",
+                  "messageHeadline": "Replace extension browse with Bubble Tea",
+                  "committedDate": "2026-10-02T16:14:56Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABQYRBcg",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "copilot-pull-request-reviewer"
+                },
+                "state": "COMMENTED",
+                "body": "<!-- ccr-overview-v2 -->\n\n## Copilot review overview\n\n### \ud83d\udfe1 Changes recommended\n\nFiltering regressions, hidden action failures, and short-terminal overflow remain unresolved.\n\n**Review effort:** Balanced  \n**Findings:** 3 <picture><source media=\"(prefers-color-scheme: dark)\" srcs\u2026",
+                "bodyHTML": "",
+                "submittedAt": "2026-10-02T16:20:58Z",
+                "url": "https://github.com/cli/cli/pull/14578#pullrequestreview-5394153842",
+                "comments": {
+                  "totalCount": 3,
+                  "nodes": [
+                    {
+                      "id": "PRRC_kwDODKw3uc74aR7T"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc74aR8K"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc74aR8n"
+                    }
+                  ]
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABYzeJXQ",
+                "author": {
+                  "__typename": "User",
+                  "login": "BagToad"
+                },
+                "body": "> [!NOTE]\n> Copilot generated this recording and comment.\n\n### Exercising `gh extension browse` at e15e40d\n\nThis recording exercises this PR's build ([`e15e40d`](https://github.com/cli/cli/pull/14578/commits/e15e40d099bb09c62c4bc549a0d58397917efb45), `gh version 2.102.0-1-ge15e40\u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-10-02T19:08:19Z",
+                "url": "https://github.com/cli/cli/pull/14578#issuecomment-5959551325"
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKDE2YTEzMDQzMzU4YWJhYTU2NTViMDhkYjE3NTUwNGViYjU0YWRlNGI",
+                "commit": {
+                  "oid": "16a13043358abaa5655b08db175504ebb54ade4b",
+                  "messageHeadline": "Improve extension browse styling",
+                  "committedDate": "2026-10-06T12:16:44Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKGNmZGE3YzZmNDU4NDY1ZmYwYWU1NzlhMmUyODQxZjE1MzhjMWExNTA",
+                "commit": {
+                  "oid": "cfda7c6f458465ff0ae579a2e2841f1538c1a150",
+                  "messageHeadline": "Keep extension descriptions readable",
+                  "committedDate": "2026-10-06T15:11:01Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABQ7H3ZQ",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "copilot-pull-request-reviewer"
+                },
+                "state": "COMMENTED",
+                "body": "<!-- ccr-overview-v2 -->\n\n## Copilot review overview\n\n### \ud83d\udfe1 Changes recommended\n\nPrintable-key handling and quitting during extension mutations can cause broken help access and interrupted filesystem operations.\n\n**Review effort:** Balanced  \n**Findings:** 1 <picture><source medi\u2026",
+                "bodyHTML": "",
+                "submittedAt": "2026-10-06T15:22:31Z",
+                "url": "https://github.com/cli/cli/pull/14578#pullrequestreview-5430703973",
+                "comments": {
+                  "totalCount": 2,
+                  "nodes": [
+                    {
+                      "id": "PRRC_kwDODKw3uc76K3i4"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc76K3kH"
+                    }
+                  ]
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKGYzYWRhYWU0ZGM4NzNjM2QyN2Q5OTQxM2E5ZDkzZTFmMWVlZWMyOGI",
+                "commit": {
+                  "oid": "f3adaae4dc873c3d27d99413a9d93e1f1eeec28b",
+                  "messageHeadline": "Address extension browse review feedback",
+                  "committedDate": "2026-10-06T16:05:56Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "id": "RFRE_lADODKw3uc8AAAABUpCJOM8AAAAHmBhrtA",
+                "actor": {
+                  "login": "williammartin"
+                },
+                "createdAt": "2026-10-06T16:06:30Z"
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABZwikEw",
+                "author": {
+                  "__typename": "User",
+                  "login": "BagToad"
+                },
+                "body": "> [!NOTE]\n> Copilot generated this screenshot and comment.\n\n\ud83d\udc1b potential bug, minor, non-blocking, \ud83e\udd16 copilot found: README lines that can't wrap push the footer off-screen\n\nIn a 120x30 terminal, run `gh extension browse`, press `/`, and type `t4y3`. The README frame runs off the s\u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-10-06T19:12:00Z",
+                "url": "https://github.com/cli/cli/pull/14578#issuecomment-6023586835"
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKGMxMjg5Mjk2MTE0MzAzNDI0MDI0Nzc0NWJhYzBhMjRjMDg3OTk2MWU",
+                "commit": {
+                  "oid": "c12892961143034240247745bac0a24c0879961e",
+                  "messageHeadline": "Keep README preview within terminal",
+                  "committedDate": "2026-10-07T04:42:37Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABZ3sHLw",
+                "author": {
+                  "__typename": "User",
+                  "login": "williammartin"
+                },
+                "body": "> [!NOTE]\r\n> Copilot generated this screenshot and comment.\r\n\r\nFixed in c12892961. Lipgloss v2 includes the border in the styled width and height, so the frame now adds the two border columns and rows around the viewport instead of taking them from its content area.\r\n\r\nI also str\u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-10-07T04:42:46Z",
+                "url": "https://github.com/cli/cli/pull/14578#issuecomment-6031083311"
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABaFQoVw",
+                "author": {
+                  "__typename": "User",
+                  "login": "BagToad"
+                },
+                "body": "> [!NOTE]\n> Copilot generated this screenshot and comment.\n\nTwo more findings. Neither should block merging.\n\n\ud83d\udc1b potential bug, minor, non-blocking, \ud83e\udd16 copilot found: Multi-line install errors are cut off\n\nIf an extension has no build for the user's platform, the install error span\u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-10-07T19:31:48Z",
+                "url": "https://github.com/cli/cli/pull/14578#issuecomment-6045313111"
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABRK-09w",
+                "author": {
+                  "__typename": "User",
+                  "login": "BagToad"
+                },
+                "state": "APPROVED",
+                "body": "",
+                "bodyHTML": "",
+                "submittedAt": "2026-10-07T19:31:56Z",
+                "url": "https://github.com/cli/cli/pull/14578#pullrequestreview-5447333111",
+                "comments": {
+                  "totalCount": 0,
+                  "nodes": []
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKDdkY2E4MzkzODVmY2M2ZTAwZWZiZmQ4NWQwM2UwY2MzYThmOGZjYWI",
+                "commit": {
+                  "oid": "7dca839385fcc6e00efbfd85d03e0cc3a8f8fcab",
+                  "messageHeadline": "Show complete extension action errors",
+                  "committedDate": "2026-10-08T04:39:24Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABaMAhXA",
+                "author": {
+                  "__typename": "User",
+                  "login": "williammartin"
+                },
+                "body": "Fixed the multi-line error display in 7dca83938 and polished wrapped command indentation in 7cb1cfff7. Status text now wraps at terminal width, the catalog/README area gives up the corresponding rows, and continuations preserve the command block's four-space indent. The complete \u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-10-08T04:40:32Z",
+                "url": "https://github.com/cli/cli/pull/14578#issuecomment-6052389212"
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABGUJatNoAKDdjYjFjZmZmNzAxZDRkOWFlNDk2MzMyNzY4NmMwOWE3MWI4ZmFiYTg",
+                "commit": {
+                  "oid": "7cb1cfff701d4d9ae4963327686c09a71b8faba8",
+                  "messageHeadline": "Preserve wrapped status indentation",
+                  "committedDate": "2026-10-08T04:43:16Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "MergedEvent",
+                "id": "ME_lADODKw3uc8AAAABUpCJOM8AAAAHoN9ayw",
+                "actor": {
+                  "login": "williammartin"
+                },
+                "createdAt": "2026-10-08T08:05:12Z"
+              },
+              {
+                "__typename": "ClosedEvent",
+                "id": "CE_lADODKw3uc8AAAABUpCJOM8AAAAHoN9bbw",
+                "actor": {
+                  "login": "williammartin"
+                },
+                "createdAt": "2026-10-08T08:05:12Z"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "cli-13390": {
+    "data": {
+      "viewer": {
+        "login": "me"
+      },
+      "repository": {
+        "pullRequest": {
+          "id": "PR_kwDODKw3uc7Z5TNs",
+          "body": "Adds `gh discussion edit` to allow editing a discussion's title, body, and category via flags or interactive prompts.\n\n## What's included\n- `--title`, `--body`, `--body-file`, `--category` flags\n- Interactive MultiSelect prompt when no flags supplied (TTY)\n- Early-exit no-op when\u2026",
+          "bodyHTML": "",
+          "author": {
+            "login": "maxbeizer"
+          },
+          "createdAt": "2026-05-09T18:54:34Z",
+          "locked": false,
+          "viewerCanUpdate": false,
+          "timelineItems": {
+            "pageInfo": {
+              "hasPreviousPage": false,
+              "startCursor": "Y3Vyc29yOnYyOpPPAAABnglsQPAH2gAzMzY1NTY3Njc4MDozMzY2Y2Y5MDY0YzYyMDUzNmZjYjUxMmE0MGVhMzlkNDZiN2ViZDli"
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc7Z5TNs2gAoMzM2NmNmOTA2NGM2MjA1MzZmY2I1MTJhNDBlYTM5ZDQ2YjdlYmQ5Yg",
+                "commit": {
+                  "oid": "3366cf9064c620536fcb512a40ea39d46b7ebd9b",
+                  "messageHeadline": "Add gh discussion edit command",
+                  "committedDate": "2026-05-08T21:09:10Z",
+                  "author": {
+                    "name": "Max Beizer",
+                    "user": {
+                      "login": "maxbeizer"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc7Z5TNs2gAoZjM3NjZhYThmZTQwMmQyNGQ4MDY1Y2Y2MmNjNjUwZjQzODJmOGI2Yw",
+                "commit": {
+                  "oid": "f3766aa8fe402d24d8065cf62cc650f4382f8b6c",
+                  "messageHeadline": "fix: skip Update API call when interactive user selects nothing to edit",
+                  "committedDate": "2026-05-09T18:23:46Z",
+                  "author": {
+                    "name": "Max Beizer",
+                    "user": {
+                      "login": "maxbeizer"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABBw95Yw",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "github-actions"
+                },
+                "body": "This pull request appears to be a resubmission of a recently closed PR (#13384) that did not meet the contribution requirements.\n\nRather than resubmitting, please ensure your contribution:\n1. References an issue with the `help wanted` label\n2. Includes a detailed description\n\nIf \u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-05-09T18:54:45Z",
+                "url": "https://github.com/cli/cli/pull/13390#issuecomment-4413421923"
+              },
+              {
+                "__typename": "ClosedEvent",
+                "id": "CE_lADODKw3uc8AAAABBxFKc88AAAAF5pOWDw",
+                "actor": {
+                  "login": "github-actions"
+                },
+                "createdAt": "2026-05-09T18:54:48Z"
+              },
+              {
+                "__typename": "ReopenedEvent",
+                "id": "REE_lADODKw3uc8AAAABBxFKc88AAAAF7q0Zrw",
+                "actor": {
+                  "login": "babakks"
+                },
+                "createdAt": "2026-05-13T11:36:01Z"
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_kwDODKw3uc8AAAABCK0HGw",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "github-actions"
+                },
+                "body": "This pull request appears to be a resubmission of a recently closed PR (#13384) that did not meet the contribution requirements.\n\nRather than resubmitting, please ensure your contribution:\n1. References an issue with the `help wanted` label\n2. Includes a detailed description\n\nIf \u2026",
+                "bodyHTML": "",
+                "createdAt": "2026-05-13T11:36:18Z",
+                "url": "https://github.com/cli/cli/pull/13390#issuecomment-4440524571"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "cli-14507": {
+    "data": {
+      "viewer": {
+        "login": "me"
+      },
+      "repository": {
+        "pullRequest": {
+          "id": "PR_kwDODKw3uc8AAAABEu0z3A",
+          "body": "<!--\nThank you for contributing to GitHub CLI!\n\nIf you are proposing a fix for a security issue, STOP and follow .github/SECURITY.md instead.\n-->\n\n<!-- List related issues here. Use `fixes` or `closes` keywords to associate an issue number. -->\n\nFollow-up to #14475.\n\n### Descript\u2026",
+          "bodyHTML": "",
+          "author": {
+            "login": "williammartin"
+          },
+          "createdAt": "2026-09-23T10:33:54Z",
+          "locked": false,
+          "viewerCanUpdate": false,
+          "timelineItems": {
+            "pageInfo": {
+              "hasPreviousPage": false,
+              "startCursor": "Y3Vyc29yOnYyOpPPAAABoM4b4igFqjUyOTA1NzM0MDk="
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABO1e-YQ",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "copilot-pull-request-reviewer"
+                },
+                "state": "COMMENTED",
+                "body": "<!-- ccr-overview-v2 -->\n\n## Copilot review overview\n\n### \ud83d\udfe1 Changes recommended\n\nLegacy font semantics are documented inaccurately, and new validation and provenance behavior lack ordinary regression coverage.\n\n*Get a fresh assessment by requesting another Copilot review.*\n\n**Rev\u2026",
+                "bodyHTML": "",
+                "submittedAt": "2026-09-23T11:52:09Z",
+                "url": "https://github.com/cli/cli/pull/14507#pullrequestreview-5290573409",
+                "comments": {
+                  "totalCount": 4,
+                  "nodes": [
+                    {
+                      "id": "PRRC_kwDODKw3uc7zT-LA"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc7zT-Lv"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc7zT-MK"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc7zT-My"
+                    }
+                  ]
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "id": "RFRE_lADODKw3uc8AAAABSu7GGs8AAAAHX-i3hQ",
+                "actor": {
+                  "login": "williammartin"
+                },
+                "createdAt": "2026-09-23T12:06:28Z"
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABO1oRaw",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "copilot-pull-request-reviewer"
+                },
+                "state": "COMMENTED",
+                "body": "<!-- ccr-overview-v2 -->\n\n## Copilot review overview\n\n### \ud83d\udfe1 Changes recommended\n\nExplicit font enforcement and complete provenance for auto-loaded style fonts remain unresolved.\n\n*Get a fresh assessment by requesting another Copilot review.*\n\n**Review effort:** Balanced  \n**Findi\u2026",
+                "bodyHTML": "",
+                "submittedAt": "2026-09-23T12:07:33Z",
+                "url": "https://github.com/cli/cli/pull/14507#pullrequestreview-5290725739",
+                "comments": {
+                  "totalCount": 2,
+                  "nodes": [
+                    {
+                      "id": "PRRC_kwDODKw3uc7zUdOP"
+                    },
+                    {
+                      "id": "PRRC_kwDODKw3uc7zUdPW"
+                    }
+                  ]
+                }
+              },
+              {
+                "__typename": "ReadyForReviewEvent",
+                "id": "RFRE_lADODKw3uc8AAAABSu7GGs8AAAAHYVcCYA",
+                "actor": {
+                  "login": "williammartin"
+                },
+                "createdAt": "2026-09-23T17:58:44Z"
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKDE4YWEzMGJmZmNmZDFlNDI3ZTgxY2RhZDRkNTk4ZmIxMzAwZGY1ZTM",
+                "commit": {
+                  "oid": "18aa30bffcfd1e427e81cdad4d598fb1300df5e3",
+                  "messageHeadline": "Improve CLI recording rendering",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKGRlMGViMTU3ODczOGRiOGViNWI0NDA4M2M5MzQ5N2YzNWU4YmY2ZTE",
+                "commit": {
+                  "oid": "de0eb1578738db8eb5b44083c93497f35e8bf6e1",
+                  "messageHeadline": "Move font choice to rendering",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKDA3ODkyZjg4MTM0MjZmYjBkZjgyOWU0M2E0YjdkY2UzM2Q3N2FhZDA",
+                "commit": {
+                  "oid": "07892f8813426fb0df829e43a4b7dce33d77aad0",
+                  "messageHeadline": "Keep font hashes with renderings",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKDk0YTFlMmZmNjUzMjYyMmI0YzQ5MWRiODlkMDcwMGViZmY4Y2FiNzU",
+                "commit": {
+                  "oid": "94a1e2ff6532622b4c491db89d0700ebff8cab75",
+                  "messageHeadline": "Require fonts at render time",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKDBlNDJlOTg3NjYzMDc2MmRjOWE4NGU2YzhmYjE1MzUwMGZjMzAzMTI",
+                "commit": {
+                  "oid": "0e42e9876630762dc9a84e6c8fb153500fc30312",
+                  "messageHeadline": "Remove fonts from preflight",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PURC_lADODKw3uc8AAAABEu0z3NoAKDQwNDU5MjkyZGJkMGUyM2JhZWQ2MzY2MzQ3NDBmMzFlNjI2MmUyNmQ",
+                "commit": {
+                  "oid": "40459292dbd0e23baed636634740f31e6262e26d",
+                  "messageHeadline": "Complete rendering font provenance",
+                  "committedDate": "2026-09-23T21:07:07Z",
+                  "author": {
+                    "name": "William Martin",
+                    "user": {
+                      "login": "williammartin"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_kwDODKw3uc8AAAABO7cQCQ",
+                "author": {
+                  "__typename": "User",
+                  "login": "BagToad"
+                },
+                "state": "APPROVED",
+                "body": "",
+                "bodyHTML": "",
+                "submittedAt": "2026-09-23T21:08:55Z",
+                "url": "https://github.com/cli/cli/pull/14507#pullrequestreview-5296820233",
+                "comments": {
+                  "totalCount": 0,
+                  "nodes": []
+                }
+              },
+              {
+                "__typename": "MergedEvent",
+                "id": "ME_lADODKw3uc8AAAABSu7GGs8AAAAHYhg9QQ",
+                "actor": {
+                  "login": "BagToad"
+                },
+                "createdAt": "2026-09-23T21:21:35Z"
+              },
+              {
+                "__typename": "ClosedEvent",
+                "id": "CE_lADODKw3uc8AAAABSu7GGs8AAAAHYhg9wA",
+                "actor": {
+                  "login": "BagToad"
+                },
+                "createdAt": "2026-09-23T21:21:35Z"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

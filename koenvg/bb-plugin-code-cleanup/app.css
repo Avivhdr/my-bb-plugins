@@ -1,0 +1,433 @@
+.code-cleanup-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.code-cleanup-settings p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.code-cleanup-settings label,
+.code-cleanup-settings [id$="label"] {
+  font-weight: 500;
+}
+.code-cleanup-settings button,
+.code-cleanup-settings textarea {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--input, var(--border));
+  border-radius: var(--radius, 6px);
+  padding: 0.5rem 0.75rem;
+  min-height: 2.5rem;
+  max-width: 100%;
+}
+.code-cleanup-settings button {
+  cursor: pointer;
+}
+.code-cleanup-settings button:hover:not(:disabled) {
+  background: var(--state-hover, var(--muted));
+}
+.code-cleanup-settings button:active:not(:disabled) {
+  background: var(--state-active, var(--muted));
+}
+.code-cleanup-settings :disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.code-cleanup-settings :focus-visible {
+  outline: 2px solid var(--ring, var(--foreground));
+  outline-offset: 3px;
+}
+.code-cleanup-settings .cleanup-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.code-cleanup-settings [aria-checked="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+.code-cleanup-settings [aria-checked="true"]:hover:not(:disabled) {
+  background: var(--foreground);
+}
+.code-cleanup-settings .cleanup-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.code-cleanup-settings textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  min-height: 16rem;
+  font: 0.8125rem/1.6 var(--font-mono, ui-monospace, monospace);
+  caret-color: var(--foreground);
+}
+.code-cleanup-settings ::selection {
+  color: var(--background);
+  background: var(--foreground);
+}
+.code-cleanup-settings .cleanup-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.code-cleanup-settings .cleanup-tabs,
+.code-cleanup-settings .cleanup-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.code-cleanup-settings .cleanup-icon-action {
+  display: inline-flex;
+  position: relative;
+}
+.code-cleanup-settings .cleanup-icon-action button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-color: transparent;
+}
+.code-cleanup-settings .cleanup-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.code-cleanup-settings [role="tab"][aria-selected="true"] {
+  background: var(--state-active, var(--muted));
+  border-color: var(--border);
+}
+.code-cleanup-settings .cleanup-tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 1;
+  width: max-content;
+  max-width: 12rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+  color: var(--popover-foreground, var(--foreground));
+  background: var(--popover, var(--background));
+  font-size: 0.75rem;
+  line-height: 1.5;
+  pointer-events: auto;
+}
+.code-cleanup-settings .cleanup-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 0.5rem;
+}
+.code-cleanup-settings .cleanup-footer .cleanup-tooltip {
+  left: auto;
+  right: 0;
+}
+.code-cleanup-settings .cleanup-metadata {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.code-cleanup-settings #cleanup-count {
+  font-variant-numeric: tabular-nums;
+}
+.code-cleanup-settings .cleanup-markdown,
+.code-cleanup-settings .cleanup-confirm {
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+  padding: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.code-cleanup-settings .cleanup-markdown {
+  min-height: 16rem;
+}
+.code-cleanup-settings .cleanup-markdown > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.code-cleanup-settings .cleanup-markdown img {
+  max-width: 100%;
+  height: auto;
+}
+.code-cleanup-settings pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--muted);
+  font: 0.8125rem/1.6 var(--font-mono, ui-monospace, monospace);
+  overflow-x: auto;
+}
+.code-cleanup-settings .cleanup-markdown a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.125rem;
+}
+.code-cleanup-settings .cleanup-confirm h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.code-cleanup-settings .cleanup-confirm .cleanup-actions {
+  margin-top: 0.75rem;
+}
+.code-cleanup-settings .cleanup-help {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.code-cleanup-settings .cleanup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.code-cleanup-settings .cleanup-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.code-cleanup-settings .cleanup-overview h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.code-cleanup-settings .cleanup-overview-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+}
+.code-cleanup-settings .cleanup-overview-table th,
+.code-cleanup-settings .cleanup-overview-table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.code-cleanup-settings .cleanup-overview-table th:first-child {
+  width: 25%;
+}
+.code-cleanup-settings .cleanup-overview-table th:nth-child(2) {
+  width: 13%;
+}
+.code-cleanup-settings .cleanup-overview-table th:nth-child(3) {
+  width: 28%;
+}
+.code-cleanup-settings .cleanup-overview-table th:nth-child(4) {
+  width: 16%;
+}
+.code-cleanup-settings .cleanup-source-heading-note {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.code-cleanup-settings .cleanup-overview-table .cleanup-icon-action button[role="switch"] {
+  min-width: 2.75rem;
+}
+.code-cleanup-settings .cleanup-state-icon {
+  display: grid;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.code-cleanup-settings .cleanup-state-icon svg {
+  grid-area: 1 / 1;
+}
+.code-cleanup-settings .cleanup-overview-table .cleanup-state-icon svg {
+  opacity: 0;
+  transform: scale(0.82) rotate(-8deg);
+  transition:
+    opacity 100ms ease-out,
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.code-cleanup-settings .cleanup-overview-table .cleanup-state-icon svg[data-active="true"] {
+  opacity: 1;
+  transform: none;
+}
+.code-cleanup-settings .cleanup-overview-table .cleanup-icon-action button {
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.code-cleanup-settings .cleanup-overview-table .cleanup-icon-action button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-cleanup-settings .cleanup-overview-table .cleanup-state-icon svg {
+    transform: none;
+    transition: opacity 80ms linear;
+  }
+  .code-cleanup-settings .cleanup-overview-table .cleanup-icon-action button {
+    transition: none;
+  }
+  .code-cleanup-settings .cleanup-overview-table .cleanup-icon-action button:active:not(:disabled) {
+    transform: none;
+  }
+}
+.code-cleanup-settings .cleanup-setting-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+@media (max-width: 600px) {
+  .code-cleanup-settings .cleanup-overview-table,
+  .code-cleanup-settings .cleanup-overview-table tbody,
+  .code-cleanup-settings .cleanup-overview-table tr,
+  .code-cleanup-settings .cleanup-overview-table th,
+  .code-cleanup-settings .cleanup-overview-table td {
+    display: block;
+    width: 100%;
+  }
+  .code-cleanup-settings .cleanup-overview-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .code-cleanup-settings .cleanup-overview-table tr {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+  }
+  .code-cleanup-settings .cleanup-overview-table th,
+  .code-cleanup-settings .cleanup-overview-table td {
+    border: 0;
+    padding: 0.25rem 0;
+  }
+  .code-cleanup-settings .cleanup-overview-table th:first-child {
+    width: 100%;
+    padding-top: 0.75rem;
+  }
+  .code-cleanup-settings .cleanup-overview-table td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+}
+@media (max-width: 480px) {
+  .code-cleanup-settings .cleanup-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.code-cleanup-settings .cleanup-project-name {
+  text-align: left;
+  font-weight: 600;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.5rem 0;
+  min-height: 2.75rem;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 0.2rem;
+}
+.code-cleanup-settings tr[data-editing="true"] {
+  background: var(--state-active, var(--muted));
+}
+.code-cleanup-settings .cleanup-dialog {
+  box-sizing: border-box;
+  width: min(48rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 6px);
+  font: inherit;
+}
+.code-cleanup-settings .cleanup-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.code-cleanup-settings .cleanup-dialog::backdrop {
+  background: color-mix(in oklab, var(--foreground) 25%, transparent);
+}
+.code-cleanup-settings .cleanup-dialog-header,
+.code-cleanup-settings .cleanup-dialog-footer {
+  flex: none;
+  padding: 1rem;
+}
+.code-cleanup-settings .cleanup-dialog-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.code-cleanup-settings .cleanup-dialog-header > div {
+  min-width: 0;
+}
+.code-cleanup-settings .cleanup-dialog h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+.code-cleanup-settings .cleanup-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+}
+.code-cleanup-settings .cleanup-dialog-body > div:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.code-cleanup-settings .cleanup-dialog-footer {
+  border-top: 1px solid var(--border);
+}
+.code-cleanup-settings .cleanup-dialog-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+.code-cleanup-settings .cleanup-dialog button {
+  min-height: 2.75rem;
+}
+.code-cleanup-settings .cleanup-dialog .cleanup-save {
+  color: var(--background);
+  background: var(--foreground);
+}
+.code-cleanup-settings .cleanup-dialog .cleanup-save:hover:not(:disabled) {
+  color: var(--background);
+  background: var(--foreground);
+  opacity: 0.9;
+}
+@media (max-width: 480px) {
+  .code-cleanup-settings .cleanup-dialog {
+    width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+  .code-cleanup-settings .cleanup-dialog-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .code-cleanup-settings .cleanup-dialog-actions .cleanup-actions {
+    flex-direction: row;
+  }
+  .code-cleanup-settings .cleanup-dialog-actions .cleanup-actions > button {
+    flex: 1;
+  }
+}
+
+.code-cleanup-settings .cleanup-dialog [hidden] {
+  display: none;
+}

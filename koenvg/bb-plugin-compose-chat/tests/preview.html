@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Compose Chat fixture</title>
+    <link rel="stylesheet" href="../dist/app.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --canvas: #181818;
+        --ink: #dedede;
+        --foreground: #dedede;
+        --background: #181818;
+        --muted-foreground: #b0b0b0;
+        --subtle-foreground: #a4a4a4;
+        --border: #3b3b3b;
+        --border-hairline: #343434;
+        --input: #696969;
+        --ring: #b0b0b0;
+        --secondary: #2c2c2c;
+        --surface-recessed: #202020;
+        --state-hover: #ffffff12;
+        --state-active: #ffffff20;
+        --sidebar: #252627;
+        --attention: oklch(74% 0.15 80);
+        --radius: 8px;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --canvas: #fff;
+        --ink: #333;
+        --foreground: #333;
+        --background: #fff;
+        --muted-foreground: #686868;
+        --subtle-foreground: #757575;
+        --border: #ddd;
+        --border-hairline: #e5e5e5;
+        --input: #999;
+        --ring: #333;
+        --secondary: #eee;
+        --surface-recessed: #f5f5f5;
+        --state-hover: #0000000f;
+        --state-active: #0000001f;
+        --sidebar: #f7f7f7;
+      }
+      :root[data-theme="custom"] {
+        --canvas: #192631;
+        --ink: #e1eaf0;
+        --foreground: #e1eaf0;
+        --background: #192631;
+        --muted-foreground: #b6cad5;
+        --subtle-foreground: #a5bac6;
+        --border: #466171;
+        --border-hairline: #354f5e;
+        --input: #87a5b6;
+        --ring: #e1eaf0;
+        --secondary: #2b4351;
+        --surface-recessed: #223542;
+        --state-hover: #ffffff12;
+        --state-active: #ffffff20;
+        --sidebar: #1c2c38;
+        --radius: 12px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          18px/1.55 system-ui,
+          sans-serif;
+        color: var(--foreground);
+        background: var(--canvas);
+      }
+      button,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        background: transparent;
+        border: 0;
+        padding: 5px 8px;
+        border-radius: 6px;
+      }
+      button:disabled {
+        cursor: default;
+        color: var(--subtle-foreground);
+      }
+      button:hover:not(:disabled) {
+        background: var(--state-hover);
+      }
+      button:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+      }
+      svg {
+        width: 19px;
+        height: 19px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+        vertical-align: middle;
+      }
+      .app {
+        display: grid;
+        grid-template-columns: 26% minmax(0, 1fr);
+        min-height: 100svh;
+      }
+      aside {
+        background: var(--sidebar);
+        padding: 14px 20px;
+        font-size: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .sidebar-controls {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+      nav {
+        display: grid;
+        gap: 4px;
+      }
+      nav button {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        text-align: left;
+        min-height: 34px;
+      }
+      .project {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 8px 0 2px;
+      }
+      .sidebar-thread {
+        padding: 8px 18px;
+        line-height: 1.55;
+        border-radius: 8px;
+      }
+      .selected {
+        background: var(--state-active);
+      }
+      .meta {
+        font-size: 14px;
+        color: var(--muted-foreground);
+      }
+      .sidebar-bottom {
+        margin-top: auto;
+        display: flex;
+        gap: 10px;
+      }
+      main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100svh;
+      }
+      header {
+        min-height: 58px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .thread {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 22px 42px 26px 56px;
+        overflow: auto;
+      }
+      [data-timeline-row-list="top-level"] {
+        flex: 1;
+        min-height: 420px;
+      }
+      .user-row {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 28px;
+      }
+      .rounded-xl {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--secondary);
+        padding: 12px 18px;
+      }
+      .thought {
+        color: var(--muted-foreground);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      [data-markdown-preview] p {
+        margin: 18px 0 34px;
+      }
+      .work-header {
+        padding: 0;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .tools {
+        margin: 8px 0 34px;
+        display: grid;
+        gap: 6px;
+      }
+      .tools button {
+        padding: 0;
+        text-align: left;
+        width: fit-content;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .tools svg {
+        width: 14px;
+        height: 14px;
+      }
+      .activity-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      [data-plugin-icon-asset] {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        background: var(--muted-foreground);
+        mask-image: url("./fixture-shine.svg");
+        mask-size: 100% 100%;
+      }
+      /* Native title geometry and shimmer properties, with an authored mask fixture. */
+      .leading-5 {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 4px;
+        line-height: 20px;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .truncate {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: pre;
+      }
+      .animate-shine {
+        display: inline-block;
+        -webkit-text-fill-color: var(--foreground);
+        -webkit-mask-image: url("./fixture-shine.svg");
+        mask-image: url("./fixture-shine.svg");
+        -webkit-mask-size: 100% 100%;
+        mask-size: 100% 100%;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        will-change: transform;
+      }
+      .inline-thinking {
+        color: var(--muted-foreground);
+        margin: 18px 0 28px;
+      }
+      .reasoning-detail {
+        padding: 8px 0;
+        font-size: 14px;
+      }
+      .work-status {
+        margin: 10px 0 14px;
+      }
+      .git {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 16px;
+        margin-bottom: 10px;
+      }
+      [data-app-composer] {
+        min-width: 0;
+      }
+      form[data-promptbox] {
+        margin: 0;
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 2px 4px #0002;
+      }
+      [data-promptbox-input-region] {
+        padding: 12px 16px 6px;
+      }
+      textarea {
+        width: 100%;
+        resize: none;
+        border: 0;
+        background: transparent;
+        min-height: 38px;
+        outline: none;
+        line-height: 1.55;
+        padding: 0;
+      }
+      textarea::placeholder {
+        color: var(--muted-foreground);
+      }
+      [data-promptbox-action-row] {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 0 12px 10px;
+        font-size: 14px;
+      }
+      .send {
+        margin-left: auto;
+        background: var(--foreground);
+        color: var(--background);
+        min-width: 32px;
+        min-height: 32px;
+      }
+      /* Native-shaped split-send controls: the options segment is intentionally
+     narrower than a standalone target and collapses to zero for empty input. */
+      [data-promptbox-send-menu] {
+        display: inline-flex;
+        align-items: center;
+        margin-left: auto;
+        border-radius: 6px;
+        background: var(--foreground);
+        color: var(--background);
+      }
+      [data-promptbox-send-menu] button {
+        padding: 0;
+        min-width: 0;
+        min-height: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+      }
+      [data-promptbox-send-menu] [aria-label="Send options"] {
+        width: 24px;
+        overflow: hidden;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+      }
+      [data-promptbox-send-menu] [aria-hidden="true"] {
+        width: 0;
+      }
+      [data-promptbox-send-menu]:has([aria-label="Send options"]:not([aria-hidden="true"]))
+        [data-promptbox-submit-action] {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+      [data-follow-up-composer-footer],
+      .new-footer {
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0 14px;
+        min-height: 24px;
+        max-height: 36px;
+        overflow: hidden;
+        font-size: 14px;
+      }
+      .footer-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .footer-left button {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .fixture-footer {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+      .fixture-footer output {
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      :root[data-layout="compact"] [data-promptbox-action-row] {
+        padding: 0 12px 10px;
+      }
+      :root[data-layout="compact"] [data-follow-up-composer-footer] {
+        max-height: 0;
+        min-height: 0;
+        opacity: 0;
+        padding: 0;
+      }
+      .unrelated {
+        display: none;
+      }
+      @media (max-width: 767px) {
+        body {
+          font-size: 15px;
+        }
+        .app {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        aside {
+          display: none;
+        }
+        header {
+          min-height: 48px;
+        }
+        .thread {
+          padding: 18px 14px 14px;
+        }
+        .user-row {
+          margin-bottom: 24px;
+        }
+        [data-timeline-row-list] {
+          min-height: 0;
+        }
+        [data-markdown-preview] p {
+          margin: 14px 0 22px;
+        }
+        .tools {
+          margin-bottom: 20px;
+        }
+        .git {
+          font-size: 12px;
+        }
+        [data-follow-up-composer-footer] {
+          max-height: 0;
+          min-height: 0;
+          opacity: 0;
+          padding: 0;
+        }
+        .fixture-footer {
+          flex-wrap: wrap;
+          font-size: 11px;
+          gap: 6px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none" aria-hidden="true">
+      <defs>
+        <symbol id="message" viewBox="0 0 24 24">
+          <path
+            d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-3 3V11.5A8.5 8.5 0 0 1 9.5 3h3a8.5 8.5 0 0 1 8.5 8.5Z"
+          />
+        </symbol>
+        <symbol id="file" viewBox="0 0 24 24">
+          <path d="M6 3h8l4 4v14H6Z M14 3v5h4 M9 12h6 M9 16h6" />
+        </symbol>
+        <symbol id="folder" viewBox="0 0 24 24"><path d="M3 5h7l2 3h9v12H3Z" /></symbol>
+        <symbol id="branch" viewBox="0 0 24 24">
+          <circle cx="6" cy="5" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <circle cx="18" cy="5" r="2" />
+          <path d="M6 7v10 M18 7a8 8 0 0 1-12 8" />
+        </symbol>
+        <symbol id="plus" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v8 M8 12h8" />
+        </symbol>
+        <symbol id="send" viewBox="0 0 24 24"><path d="m12 19 0-14 M6 11l6-6 6 6" /></symbol>
+        <symbol id="stop" viewBox="0 0 24 24">
+          <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
+        </symbol>
+        <symbol id="grid" viewBox="0 0 24 24">
+          <path d="M4 4h4v4H4Z M16 4h4v4h-4Z M4 16h4v4H4Z M16 16h4v4h-4Z" />
+        </symbol>
+        <symbol id="mic" viewBox="0 0 24 24">
+          <rect x="9" y="3" width="6" height="12" rx="3" />
+          <path d="M6 11v1a6 6 0 0 0 12 0v-1 M12 18v3 M9 21h6" />
+        </symbol>
+      </defs>
+    </svg>
+    <div class="app">
+      <aside aria-label="Synthetic sidebar">
+        <div class="sidebar-controls">
+          <svg><use href="#grid" /></svg><button aria-label="Back">Back</button>
+        </div>
+        <nav>
+          <button>
+            <svg><use href="#plus" /></svg>New thread</button
+          ><button>
+            <svg><use href="#grid" /></svg>Plugins</button
+          ><button>
+            <svg><use href="#file" /></svg>Skills</button
+          ><button>
+            <svg><use href="#grid" /></svg>Automations</button
+          ><button>More</button>
+        </nav>
+        <div class="project">
+          <svg><use href="#folder" /></svg>BB plugins
+        </div>
+        <div class="sidebar-thread">
+          Review pull requests
+          <div class="meta">feat/ai-engine</div>
+        </div>
+        <div class="sidebar-thread">
+          Tasks board shortcuts
+          <div class="meta">feat/ai-engine</div>
+        </div>
+        <div class="sidebar-thread selected">
+          Refine the chat styling
+          <div class="meta">feat/ai-engine</div>
+        </div>
+        <div class="project">
+          <svg><use href="#folder" /></svg>runobi
+        </div>
+        <div class="project">
+          <svg><use href="#folder" /></svg>uselayouts
+        </div>
+        <div class="sidebar-thread">
+          add this component in library…
+          <div class="meta">feat/revive</div>
+        </div>
+        <div class="project">
+          <svg><use href="#message" /></svg>Threads
+        </div>
+        <div class="sidebar-thread">
+          Minimize prompt input during…
+          <div class="meta">diiip3sh</div>
+        </div>
+        <div class="sidebar-thread">
+          Replicate Vesper editor theme
+          <div class="meta">diiip3sh</div>
+        </div>
+        <div class="sidebar-bottom">
+          <button aria-label="Settings">
+            <svg><use href="#grid" /></svg>
+          </button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <span>Refine the chat styling</span
+          ><button aria-label="Thread actions">
+            <svg><use href="#grid" /></svg>
+          </button>
+        </header>
+        <div class="thread">
+          <div data-timeline-row-list="top-level">
+            <div data-timeline-row-id="fixture:user-seed:1" class="user-row">
+              <div class="group/message">
+                <div>
+                  <div class="rounded-xl">
+                    Keep the layout and behavior. Make the chat easier to read.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="thought">
+              <svg><use href="#grid" /></svg><span class="leading-5"><span>Thought 4s</span></span>
+            </div>
+            <div data-markdown-preview>
+              <p>
+                I will refine the spacing, tool rows, and composer while keeping every control in
+                place.
+              </p>
+            </div>
+            <div data-timeline-row-id="fixture:tools:1">
+              <details open>
+                <summary class="work-header">
+                  <span class="leading-5"
+                    ><span class="animate-shine truncate">Running 3 tools</span></span
+                  >
+                </summary>
+                <div data-timeline-row-list="bundle" class="tools">
+                  <div data-timeline-row-id="fixture:tool:1">
+                    <button>
+                      <span class="activity-summary"
+                        ><svg data-icon-root><use href="#file" /></svg
+                        ><span class="leading-5"
+                          ><span class="animate-shine">Read app.css</span></span
+                        ></span
+                      >
+                    </button>
+                  </div>
+                  <div data-timeline-row-id="fixture:tool:2">
+                    <button>
+                      <svg><use href="#file" /></svg><span class="leading-5">Read settings.ts</span>
+                    </button>
+                  </div>
+                  <div data-timeline-row-id="fixture:tool:3">
+                    <button>
+                      <span class="activity-summary"
+                        ><span
+                          data-icon-root
+                          data-plugin-icon-asset="fixture"
+                          aria-hidden="true"
+                        ></span
+                        ><span class="leading-5"
+                          ><span class="animate-shine">Check theme tokens</span></span
+                        ></span
+                      >
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div data-markdown-preview>
+              <p>
+                The conversation should lead. Agent activity stays readable without competing with
+                the answer.
+              </p>
+            </div>
+            <div data-timeline-row-id="fixture:thinking:1" class="inline-thinking">
+              <details>
+                <summary class="work-header">
+                  <span class="leading-5"
+                    ><span class="animate-shine truncate">Thinking…</span></span
+                  >
+                </summary>
+                <div class="reasoning-detail">
+                  Checking that the theme and native controls stay unchanged.
+                </div>
+              </details>
+            </div>
+          </div>
+          <div class="work-status">
+            <div class="mt-4 flex min-h-7 items-center">
+              <span class="animate-shine">Working…</span>
+            </div>
+          </div>
+          <div class="git">
+            <span
+              ><svg><use href="#branch" /></svg> 3 changed files</span
+            ><span>Merge base main</span>
+          </div>
+          <div data-app-composer data-app-composer-role="primary" data-promptbox-shell>
+            <div data-follow-up-composer-anchor>
+              <div data-follow-up-composer>
+                <form data-promptbox>
+                  <div data-promptbox-layout>
+                    <div data-promptbox-input-region>
+                      <textarea
+                        aria-label="Message"
+                        placeholder="Ask a follow-up"
+                        rows="1"
+                      ></textarea>
+                    </div>
+                  </div>
+                  <div data-promptbox-action-row>
+                    <button type="button" aria-label="Prompt actions">
+                      <svg><use href="#plus" /></svg></button
+                    ><button type="button" aria-label="Provider, model and reasoning">
+                      <span title="Codex: GPT · High reasoning">Provider / model</span></button
+                    ><button type="button" aria-label="Start voice input">
+                      <svg><use href="#mic" /></svg></button
+                    ><button
+                      class="send"
+                      type="submit"
+                      data-promptbox-submit-action
+                      aria-label="Stop run"
+                    >
+                      <svg><use href="#stop" /></svg>
+                    </button>
+                  </div>
+                </form>
+                <div data-follow-up-composer-footer>
+                  <div class="footer-left">
+                    <button type="button" data-promptbox-project-control>
+                      <svg><use href="#folder" /></svg> runobi</button
+                    ><button type="button">
+                      <svg><use href="#branch" /></svg> feat/ai-engine
+                    </button>
+                  </div>
+                  <button type="button">Full Access</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="fixture-footer">
+            <span>Synthetic fixture, not installed</span
+            ><button id="toggle-style" type="button">Disable style</button
+            ><button id="toggle-theme" type="button">Light theme</button
+            ><output id="events">0 submits</output>
+          </div>
+        </div>
+      </main>
+    </div>
+    <textarea class="unrelated" aria-label="Unrelated editor">Untouched input</textarea>
+    <script type="module">
+      const params = new URLSearchParams(location.search);
+      document.documentElement.dataset.theme = params.get("theme") || "dark";
+      document.documentElement.dataset.layout = params.get("layout") || "expanded";
+      const form = document.querySelector("form[data-promptbox]");
+      const originalInput = form.querySelector("textarea");
+      const submit = form.querySelector("[data-promptbox-submit-action]");
+      if (params.get("layout") === "compact") form.setAttribute("data-promptbox-compact", "");
+      if (params.get("layout") === "new") {
+        const wrapper = document.querySelector("[data-follow-up-composer]");
+        const footer = document.querySelector("[data-follow-up-composer-footer]");
+        footer.removeAttribute("data-follow-up-composer-footer");
+        footer.className = "new-footer";
+        document.querySelector("[data-app-composer]").replaceChildren(form, footer);
+        wrapper.remove();
+      }
+      if (params.has("disabled")) submit.disabled = true;
+      if (params.has("long")) originalInput.value = "Keep the layout and behavior. ".repeat(20);
+      let nativeSplit;
+      if (params.has("split")) {
+        const split = document.createElement("div");
+        split.setAttribute("data-promptbox-send-menu", "");
+        submit.before(split);
+        split.append(submit);
+        submit.setAttribute("aria-label", "Send message");
+        submit.querySelector("use").setAttribute("href", "#send");
+        const options = document.createElement("button");
+        options.type = "button";
+        options.setAttribute("aria-label", "Send options");
+        options.innerHTML = '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>';
+        split.append(options);
+        if (params.get("split") === "draft") originalInput.value = "Native split-send draft";
+        function syncOptions() {
+          if (originalInput.value.trim()) options.removeAttribute("aria-hidden");
+          else options.setAttribute("aria-hidden", "true");
+        }
+        originalInput.addEventListener("input", syncOptions);
+        syncOptions();
+        // Sample native fixture geometry before the built content script activates.
+        nativeSplit = {
+          split,
+          options,
+          submitWidth: submit.getBoundingClientRect().width,
+          submitHeight: submit.getBoundingClientRect().height,
+          optionsWidth: options.getBoundingClientRect().width,
+          compoundWidth: split.getBoundingClientRect().width,
+          submitRightRadius: getComputedStyle(submit).borderTopRightRadius,
+        };
+      }
+      let submits = 0;
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        document.querySelector("output").textContent = `${++submits} submits`;
+      });
+      globalThis.__bbPluginRuntime = { pluginSdkApp: { definePluginApp: (setup) => ({ setup }) } };
+      const entry = await import("../dist/app.js");
+      const registrations = [],
+        commands = [];
+      entry.default.setup({
+        contentScripts: { register: (r) => registrations.push(r) },
+        commands: { register: (c) => commands.push(c) },
+        slots: { experimental_appOverlay: () => {} },
+      });
+      let controller,
+        disposers = [],
+        speedBorders;
+      function activate() {
+        controller = new AbortController();
+        disposers = registrations.map((r) =>
+          r.mount({ pluginId: "compose-chat", generation: 1, signal: controller.signal }),
+        );
+        speedBorders = entry.mountSpeedBorders();
+      }
+      function dispose() {
+        speedBorders?.dispose();
+        for (const cleanup of disposers.reverse()) cleanup?.();
+        disposers = [];
+      }
+      activate();
+      document.getElementById("toggle-style").onclick = () => {
+        if (document.documentElement.hasAttribute("data-compose-chat")) {
+          controller.abort();
+          dispose();
+        } else activate();
+      };
+      document.getElementById("toggle-theme").onclick = () => {
+        document.documentElement.dataset.theme =
+          document.documentElement.dataset.theme === "light" ? "dark" : "light";
+      };
+      if (params.has("voice")) {
+        const { installVoiceFixture } = await import("./voice-fixture.js");
+        window.voiceFixture = installVoiceFixture({
+          form,
+          input: originalInput,
+          commands,
+          version: params.get("voice") === "0.45" ? "0.45" : "0.44",
+        });
+      }
+      window.fixture = {
+        ready: true,
+        setSpeedEffect: (effect, motion = true) => speedBorders.set(effect, motion),
+        nativeSplit,
+        originalInput,
+        form,
+        submit,
+        get submits() {
+          return submits;
+        },
+        check: async () => {
+          const checks = await import("./browser-checks.js");
+          return checks.runChecks();
+        },
+      };
+    </script>
+  </body>
+</html>

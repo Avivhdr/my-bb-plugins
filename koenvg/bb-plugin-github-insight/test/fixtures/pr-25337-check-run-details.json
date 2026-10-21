@@ -1,0 +1,29 @@
+{
+  "data": {
+    "nodes": [
+      {
+        "id": "CR_kwDOHI7l-88AAAAZCnAPSQ",
+        "annotations": {
+          "nodes": []
+        }
+      },
+      {
+        "id": "CR_kwDOHI7l-88AAAAZCnoC7g",
+        "annotations": {
+          "nodes": [
+            {
+              "annotationLevel": "FAILURE",
+              "message": "Process completed with exit code 1.",
+              "path": ".github",
+              "location": {
+                "start": {
+                  "line": 4092
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

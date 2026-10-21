@@ -1,0 +1,26 @@
+html[data-document-parity] {
+  --background: #ffffff;
+  --foreground: #282828;
+  --muted-foreground: #666666;
+  --surface-recessed: #f1f1f1;
+  --border: #d7d7d7;
+  --ring: #444444;
+  --state-hover: #ededed;
+  --state-active: #e3e3e3;
+  --font-mono: monospace;
+  --radius: 6px;
+  font-family: Arial, sans-serif;
+}
+html[data-document-parity][data-theme="dark"] {
+  --background: #202020;
+  --foreground: #eeeeee;
+  --muted-foreground: #b2b2b2;
+  --surface-recessed: #2b2b2b;
+  --border: #4b4b4b;
+  --ring: #bbbbbb;
+}
+html[data-document-parity] body { font-family: Arial, sans-serif; }
+html[data-document-parity] .md-document { width: 640px; max-width: 100%; margin-inline: auto; }
+@media (max-width: 600px) {
+  html[data-document-parity] .md-document { width: 300px; }
+}

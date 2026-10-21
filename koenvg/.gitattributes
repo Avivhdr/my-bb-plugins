@@ -1,0 +1,5 @@
+packages/markdown-document/test/fixtures/exact-source.txt -text whitespace=-blank-at-eol,cr-at-eol
+packages/markdown-document/test/fixtures/report.md whitespace=-blank-at-eol
+packages/markdown-document/test/fixtures/parity-report.md whitespace=-blank-at-eol
+verification/BBP-53/*.log whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
+verification/BBP-53/*.diff whitespace=-blank-at-eol,cr-at-eol

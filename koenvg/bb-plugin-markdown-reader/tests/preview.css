@@ -1,0 +1,96 @@
+/* Default built-in token snapshot from BB's served index-C5-8cYca.css.
+   See fixtures/theme-tokens.md. Fixture-only, not installed-theme certification. */
+:root {
+  --canvas: oklch(100% 0 0);
+  --ink: oklch(32.11% 0 0);
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --muted-foreground: oklch(44% 0 0);
+  --surface-recessed: color-mix(in oklab, var(--ink) 6%, transparent);
+  --border: color-mix(in oklch, var(--ink) 14%, var(--canvas));
+  --state-hover: color-mix(in oklab, var(--ink) 5.9%, transparent);
+  --state-active: color-mix(in oklab, var(--ink) 11.8%, transparent);
+  --primary: oklch(27% 0 0);
+  --ring: var(--primary);
+  --radius: 0.5rem;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --canvas: oklch(19.5% 0 0);
+  --ink: oklch(81% 0 0);
+  --muted-foreground: oklch(78% 0 0);
+  --primary: oklch(82% 0 0);
+  --border: color-mix(in oklch, var(--ink) 19.4%, var(--canvas));
+  --state-hover: color-mix(in oklab, var(--ink) 13.8%, transparent);
+  --state-active: color-mix(in oklab, var(--ink) 22.5%, transparent);
+  color-scheme: dark;
+}
+:root[data-theme="custom"] {
+  --background: #fff8ef;
+  --foreground: #30334e;
+  --muted-foreground: #565b70;
+  --surface-recessed: #f3ede3;
+  --border: #c8c7c6;
+  --state-hover: #efebe7;
+  --state-active: #e5dfd9;
+  --ring: #62477b;
+  --radius: 12px;
+}
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+}
+.fixture-layout {
+  display: flex;
+  align-items: stretch;
+}
+.fixture-panel {
+  flex: none;
+  height: 100vh;
+  min-width: 0;
+}
+.fixture-outside {
+  display: none;
+  font-size: 13px;
+}
+.fixture-outside h2 {
+  font-size: 13px;
+  margin: 0;
+}
+.fixture-outside p {
+  margin: 0;
+}
+.markdown-reader button {
+  border: 0;
+}
+.markdown-reader .mr-state button {
+  border: 1px solid var(--border);
+}
+/* The SDK test runtime emits empty icon spans. These fixture-only drawings
+   represent the host icon names; installed BB supplies its own icon family. */
+.fixture-panel .mr-icon[data-icon]::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: currentColor;
+  mask: var(--fixture-icon) center / contain no-repeat;
+}
+.fixture-panel .mr-icon[data-icon="Eye"] {
+  --fixture-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+.fixture-panel .mr-icon[data-icon="Code"] {
+  --fixture-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 7-5 5 5 5M17 7l5 5-5 5m-3-14-4 18'/%3E%3C/svg%3E");
+}
+.fixture-panel .mr-icon[data-icon="ListView"] {
+  --fixture-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1'/%3E%3C/svg%3E");
+}
+.fixture-panel .mr-icon[data-icon="RotateCcw"] {
+  --fixture-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 10a9 9 0 1 1 1 7M3 4v6h6'/%3E%3C/svg%3E");
+}
+.fixture-panel[data-readers="2"] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}

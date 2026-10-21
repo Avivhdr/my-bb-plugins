@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`prHeadArgs > asks for the PR node id, head commit, state, author flag, and viewer review 1`] = `
+[
+  "api",
+  "graphql",
+  "-f",
+  "query=
+query ($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      id headRefOid state viewerDidAuthor
+      baseRefOid
+      baseRepository { name owner { login } }
+      headRepository { name owner { login } }
+      viewerLatestReview { state submittedAt commit { oid } }
+    }
+  }
+}
+",
+  "-f",
+  "owner=koenvg",
+  "-f",
+  "repo=bb-plugins",
+  "-F",
+  "number=43",
+]
+`;

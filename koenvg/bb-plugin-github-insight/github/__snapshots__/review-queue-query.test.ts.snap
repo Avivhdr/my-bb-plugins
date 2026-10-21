@@ -1,0 +1,95 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`reviewQueueBatchArgs first request > asks for each tracked PR by repository and number in the same request 1`] = `
+[
+  "api",
+  "graphql",
+  "-f",
+  "query=
+query($o0: String!, $r0: String!, $n0: Int!, $o1: String!, $r1: String!, $n1: Int!) {
+  viewer { login }
+  reviewRequests: search(type: ISSUE, first: 50, query: "is:pr is:open review-requested:@me") {
+    issueCount
+    nodes { ...QueuePr }
+  }
+  t0: repository(owner: $o0, name: $r0) { pullRequest(number: $n0) { ...QueuePr ...QueueActivity } }
+  t1: repository(owner: $o1, name: $r1) { pullRequest(number: $n1) { ...QueuePr ...QueueActivity } }
+}
+
+fragment QueuePr on PullRequest {
+  number
+  title
+  url
+  state
+  mergedAt
+  closedAt
+  isDraft
+  createdAt
+  updatedAt
+  author { login }
+  repository { nameWithOwner }
+  headRefName
+  headRefOid
+  reviewDecision
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}
+
+fragment QueueActivity on PullRequest {
+  comments(last: 10) { nodes { id createdAt author { __typename login } } }
+  reviews(last: 10) {
+    nodes { id submittedAt body author { __typename login } comments(first: 10) { nodes { id createdAt publishedAt } } }
+  }
+  timelineItems(last: 10, itemTypes: [REVIEW_REQUESTED_EVENT]) {
+    nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } } }
+  }
+}
+",
+  "-f",
+  "o0=acme",
+  "-f",
+  "r0=api",
+  "-F",
+  "n0=15",
+  "-f",
+  "o1=acme",
+  "-f",
+  "r1=web",
+  "-F",
+  "n1=3",
+]
+`;
+
+exports[`reviewQueueBatchArgs first request > asks for the review requests in one GraphQL search when nothing is tracked 1`] = `
+[
+  "api",
+  "graphql",
+  "-f",
+  "query=
+query {
+  viewer { login }
+  reviewRequests: search(type: ISSUE, first: 50, query: "is:pr is:open review-requested:@me") {
+    issueCount
+    nodes { ...QueuePr }
+  }
+}
+
+fragment QueuePr on PullRequest {
+  number
+  title
+  url
+  state
+  mergedAt
+  closedAt
+  isDraft
+  createdAt
+  updatedAt
+  author { login }
+  repository { nameWithOwner }
+  headRefName
+  headRefOid
+  reviewDecision
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}
+",
+]
+`;

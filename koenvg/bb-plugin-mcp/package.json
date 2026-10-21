@@ -1,0 +1,47 @@
+{
+  "name": "bb-plugin-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25",
+    "bb": ">=0.46",
+    "bbPluginSdk": ">=0.6.37 <0.7"
+  },
+  "bb": {
+    "name": "MCP",
+    "description": "Authenticated reads and duplicate-protected thread starts, follow-up instructions and stops over Streamable HTTP.",
+    "branding": {
+      "icon": "Plug"
+    },
+    "server": "./server.ts",
+    "skills": [
+      "skills"
+    ]
+  },
+  "overrides": {
+    "npm": "11.21.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:sdk": "node scripts/local-bb.mjs check",
+    "build": "node scripts/local-bb.mjs build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "jose": "6.2.12",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.49",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "bb-app": "0.46.1",
+    "better-sqlite3": "^12.11.1",
+    "cron-parser": "^5.10.1",
+    "hono": "^4.13.13",
+    "typescript": "^5.7.0",
+    "vitest": "4.1.11"
+  }
+}

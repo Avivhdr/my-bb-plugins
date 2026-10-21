@@ -1,0 +1,229 @@
+/* Native BB markup is a compatibility boundary, not a public renderer API.
+   All rules are gated by the content-script marker and inherit host tokens. */
+:root[data-compose-chat="active"] {
+  --compose-surface: color-mix(in oklab, var(--ink) 2%, var(--canvas));
+  --compose-message: color-mix(in oklab, var(--ink) 7%, var(--canvas));
+  --compose-line: var(--border-hairline, var(--border));
+  --compose-activity-inset: 20px;
+  --compose-radius: calc(var(--radius, 8px) + 6px);
+  --compose-shadow-color: var(--shadow-color, color-mix(in oklab, var(--ink) 6%, transparent));
+  --compose-shadow: 0 4px 16px -6px var(--compose-shadow-color);
+}
+
+/* Standalone and compact composers retain their native layout and controls. */
+:root[data-compose-chat="active"] [data-app-composer] form[data-promptbox] {
+  border: 1px solid var(--compose-line);
+  border-radius: var(--compose-radius);
+  background: var(--compose-frame-background, var(--compose-surface));
+  outline: none;
+  box-shadow: var(--compose-shadow);
+  transition: border-color 150ms ease-out;
+}
+
+/* Only an expanded follow-up gets a shared writing/action frame. Do not
+   reveal the native footer, change its height, or override its overflow. */
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-follow-up-composer]:not(:has([data-promptbox-compact])) {
+  border: 1px solid var(--compose-line);
+  border-radius: var(--compose-radius);
+  background: var(--compose-frame-background, var(--compose-surface));
+  outline: none;
+  box-shadow: var(--compose-shadow);
+  transition: border-color 150ms ease-out;
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-follow-up-composer]:not(:has([data-promptbox-compact]))
+  > form[data-promptbox] {
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-follow-up-composer]:not(:has([data-promptbox-compact]))
+  > [data-follow-up-composer-footer] {
+  border-top: 1px solid var(--compose-divider, var(--compose-line));
+  margin-top: 0;
+}
+
+/* New-thread controls stay in their native sibling footer. Join only the
+   immediate form/footer pair; banners and environment fields stay outside. */
+:root[data-compose-chat="active"]
+  [data-app-composer]:not(:has([data-follow-up-composer]))
+  form[data-promptbox]:has(+ div [data-promptbox-project-control]) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  box-shadow: var(--compose-shadow-top, 0 -4px 16px -8px var(--compose-shadow-color));
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]:not(:has([data-follow-up-composer]))
+  form[data-promptbox]
+  + div:has([data-promptbox-project-control]) {
+  border: 1px solid var(--compose-line);
+  border-top: 0;
+  border-end-start-radius: var(--compose-radius);
+  border-end-end-radius: var(--compose-radius);
+  background: var(--compose-frame-background, var(--compose-surface));
+  margin-top: 0;
+  box-shadow: var(--compose-shadow-bottom, 0 4px 16px -8px var(--compose-shadow-color));
+}
+
+:root[data-compose-chat="active"] [data-app-composer] form[data-promptbox]:focus-within,
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-follow-up-composer]:not(:has([data-promptbox-compact])):focus-within {
+  border-color: var(--compose-line);
+  outline: none;
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-follow-up-composer]:not(:has([data-promptbox-compact]))
+  > form[data-promptbox]:focus-within {
+  outline: none;
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-promptbox-action-row]
+  button:not([data-promptbox-send-menu] *) {
+  border-radius: var(--radius, 8px);
+  min-block-size: 32px;
+  transition:
+    background-color 150ms ease-out,
+    color 150ms ease-out,
+    scale 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-promptbox-submit-action]:not([data-promptbox-send-menu] *) {
+  min-inline-size: 32px;
+  border-radius: var(--radius, 8px);
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: none;
+}
+
+:root[data-compose-chat="active"] [data-app-composer] [data-promptbox-submit-action]:disabled {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+
+:root[data-compose-chat="active"] [data-app-composer] button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-compose-chat="active"]
+    [data-app-composer]
+    [data-promptbox-action-row]
+    button:not([data-promptbox-submit-action]):not(:disabled):hover {
+    background: var(--state-hover);
+  }
+  :root[data-compose-chat="active"]
+    [data-app-composer]
+    [data-promptbox-submit-action]:not(:disabled):hover {
+    background: color-mix(in oklab, var(--foreground) 90%, var(--background));
+  }
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-promptbox-action-row]
+  button:not([data-promptbox-submit-action]):not(:disabled):active {
+  background: var(--state-active);
+}
+
+:root[data-compose-chat="active"]
+  [data-app-composer]
+  [data-promptbox-action-row]
+  button:not([data-promptbox-send-menu] *):not(:disabled):active {
+  scale: 0.96;
+}
+
+:root[data-compose-chat="active"] [data-app-composer] :is(textarea, [contenteditable="true"]) {
+  caret-color: var(--foreground);
+  outline: none;
+}
+
+:root[data-compose-chat="active"] [data-app-composer] ::selection {
+  background: var(--state-active);
+  color: var(--foreground);
+}
+
+/* Keep reply structure and the host's font scale. Only reading rhythm and
+   existing message surfaces change, not content, alignment, or wrapping. */
+:root[data-compose-chat="active"] [data-timeline-row-list] [data-markdown-preview] p {
+  line-height: 1.65;
+}
+
+:root[data-compose-chat="active"]
+  [data-timeline-row-list]
+  :is([data-timeline-row-id*="\:user\:"], [data-timeline-row-id*="\:user-seed\:"])
+  .group\/message
+  > div
+  > .rounded-xl {
+  background: var(--compose-message);
+  border-color: transparent;
+  border-radius: calc(var(--radius, 8px) + 2px);
+  box-shadow: none;
+}
+
+/* Bundle rows are flush in BB. Nest their contents one shared icon/text column
+   without adding another inset to delegation or other already-nested rows. */
+:root[data-compose-chat="active"] [data-timeline-row-list="bundle"] {
+  padding-inline-start: var(--compose-activity-inset);
+}
+
+:root[data-compose-chat="active"]
+  [data-timeline-row-list]
+  [data-markdown-preview]
+  :not(pre)
+  > code {
+  border-radius: calc(var(--radius, 8px) / 2);
+  background: var(--surface-recessed);
+  padding-inline: 0.3em;
+}
+
+:root[data-compose-chat="active"] [data-timeline-row-list] [data-markdown-preview] pre {
+  border: 1px solid var(--compose-line);
+  border-radius: var(--radius, 8px);
+  box-shadow: none;
+}
+
+/* Enlarge standalone targets only. Native split-send segments own their
+   widths, hiding, and joined corners; BB also owns compact footer behavior. */
+@media (pointer: coarse) {
+  :root[data-compose-chat="active"]
+    [data-app-composer]
+    [data-promptbox-action-row]
+    button:not([data-promptbox-send-menu] *) {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-compose-chat="active"] [data-app-composer] form[data-promptbox],
+  :root[data-compose-chat="active"] [data-app-composer] [data-follow-up-composer],
+  :root[data-compose-chat="active"]
+    [data-app-composer]
+    [data-promptbox-action-row]
+    button:not([data-promptbox-send-menu] *) {
+    transition: none;
+  }
+  :root[data-compose-chat="active"]
+    [data-app-composer]
+    [data-promptbox-action-row]
+    button:not([data-promptbox-send-menu] *):not(:disabled):active {
+    scale: 1;
+  }
+}

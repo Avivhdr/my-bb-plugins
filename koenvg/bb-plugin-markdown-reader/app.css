@@ -1,0 +1,246 @@
+.markdown-reader {
+  position: relative;
+  container: markdown-reader / inline-size;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+}
+.markdown-reader,
+.markdown-reader * {
+  box-sizing: border-box;
+}
+.markdown-reader .mr-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--background);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 24px;
+  min-height: 64px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.markdown-reader .mr-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.markdown-reader .mr-filename,
+.markdown-reader .mr-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown-reader .mr-filename {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.markdown-reader .mr-path {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+.markdown-reader .mr-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+.markdown-reader .mr-view-controls {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-recessed);
+  border-radius: var(--radius);
+}
+.markdown-reader .mr-reader-actions {
+  display: flex;
+  gap: 4px;
+}
+.markdown-reader .mr-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  pointer-events: none;
+}
+.markdown-reader .mr-icon-action {
+  position: relative;
+  display: inline-flex;
+}
+.markdown-reader .mr-controls .mr-icon-action button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+.markdown-reader .mr-action-tooltip {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 2;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.markdown-reader .mr-view-controls .mr-action-tooltip {
+  right: auto;
+  left: 0;
+}
+.markdown-reader .mr-action-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: -5px 0 100%;
+}
+.markdown-reader .mr-controls button {
+  border: 0;
+}
+.markdown-reader .mr-controls button,
+.markdown-reader .mr-state button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.markdown-reader .mr-view-controls button[aria-pressed="true"] {
+  background: var(--state-active);
+  color: var(--foreground);
+}
+.markdown-reader .mr-reader-actions button[aria-pressed="true"] {
+  background: var(--state-active);
+  color: var(--foreground);
+}
+.markdown-reader button:hover {
+  background: var(--state-hover);
+  color: var(--foreground);
+}
+.markdown-reader button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.markdown-reader :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.markdown-reader .mr-content {
+  padding: 68px 48px 100px;
+}
+.markdown-reader .mr-state {
+  max-width: 720px;
+  min-width: 0;
+  margin: 0 auto;
+  color: var(--muted-foreground);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.markdown-reader .mr-content .mr-state:not(:last-child) {
+  margin-bottom: 28px;
+}
+@container markdown-reader (max-width: 1080px) {
+  .markdown-reader .mr-content {
+    padding: 52px 40px 80px;
+  }
+}
+@container markdown-reader (max-width: 600px) {
+  .markdown-reader .mr-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 16px;
+  }
+  .markdown-reader .mr-controls {
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+  .markdown-reader .mr-reader-actions {
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+  .markdown-reader .mr-content {
+    padding: 38px 24px 64px;
+  }
+}
+@media (pointer: coarse) {
+  .markdown-reader .mr-state button {
+    min-height: 44px;
+  }
+  .markdown-reader .mr-controls .mr-icon-action button {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+  }
+}
+.markdown-reader .mr-selection-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: calc(100cqw - 8px);
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover, var(--background));
+  color: var(--popover-foreground, var(--foreground));
+  box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--foreground) 15%, transparent);
+  font-size: 12px;
+  user-select: none;
+}
+.markdown-reader .mr-selection-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.markdown-reader .mr-selection-menu button:hover {
+  background: var(--surface-recessed);
+}
+.markdown-reader .mr-selection-menu button[aria-disabled="true"] {
+  color: var(--muted-foreground);
+  cursor: default;
+}
+.markdown-reader .mr-selection-menu .mr-icon {
+  width: 14px;
+  height: 14px;
+}
+.markdown-reader .mr-selection-menu span[role="status"] {
+  padding: 2px 6px;
+}
+.markdown-reader .mr-selection-feedback {
+  position: fixed;
+  z-index: 50;
+  max-width: calc(100cqw - 8px);
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--popover, var(--background));
+  color: var(--popover-foreground, var(--foreground));
+}
+@media (pointer: coarse) {
+  .markdown-reader .mr-selection-menu {
+    display: none;
+  }
+}

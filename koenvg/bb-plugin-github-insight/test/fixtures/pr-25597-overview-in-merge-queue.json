@@ -1,0 +1,147 @@
+{
+  "data": {
+    "repository": {
+      "viewerDefaultMergeMethod": "REBASE",
+      "mergeCommitAllowed": false,
+      "squashMergeAllowed": false,
+      "rebaseMergeAllowed": true,
+      "autoMergeAllowed": true,
+      "pullRequest": {
+        "number": 25597,
+        "title": "feat(*): support linking assets to Data Access Groups DEV-222871",
+        "state": "OPEN",
+        "isDraft": false,
+        "url": "https://github.com/collibra/frontend/pull/25597",
+        "id": "PR_kwDOHI7l-88AAAABF42IRQ",
+        "headRefOid": "c1eb152981fff800f0ecda4575164216665c8eb3",
+        "isMergeQueueEnabled": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "mergeQueueEntry": {
+          "position": 1,
+          "state": "AWAITING_CHECKS"
+        },
+        "headRefName": "fix/queue",
+        "baseRefName": "master",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "collibra"
+        },
+        "author": {
+          "login": "koenvg"
+        },
+        "additions": 120,
+        "deletions": 30,
+        "changedFiles": 12,
+        "autoMergeRequest": null,
+        "reviewDecision": "APPROVED",
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "samih7"
+              }
+            },
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "TimmersThomas"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": false
+            },
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": false
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "OTc"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZyaEp4g",
+                        "databaseId": 110756964834,
+                        "name": "Build and Publish",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/collibra/frontend/actions/runs/36981180829/job/110756964834",
+                        "startedAt": "2026-10-02T08:00:14Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZyY99lw",
+                        "databaseId": 110755806615,
+                        "name": "Wiz Data Scanner",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://app.wiz.io/findings/code-cicd-scans#~(event~(~%27006abf63-800b-84b4-898f-4faa0df21bfd*2cCI_CD_SCAN*2c2026-10-02T07*3a55*3a44.305930794Z))",
+                        "startedAt": "2026-10-02T07:55:44Z",
+                        "title": "Wiz Data Scanner",
+                        "summary": "#### Wiz has not detected any Data Findings\n\n*<a href=\"https://app.wiz.io/findings/code-cicd-scans#~(event~(~%27006abf63",
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZy1UVHg",
+                        "databaseId": 110785533214,
+                        "name": "review-pr / Review code changes using Claude",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/collibra/frontend/actions/runs/36990562475/job/110785533214",
+                        "startedAt": "2026-10-02T09:34:30Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Storybook Publish",
+                        "state": "SUCCESS",
+                        "description": "1695 stories published",
+                        "targetUrl": "https://6357ed1fad45d873a4da9213-onnhpdbpsf.chromatic.com/",
+                        "createdAt": "2026-10-02T08:05:25Z",
+                        "isRequired": false
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

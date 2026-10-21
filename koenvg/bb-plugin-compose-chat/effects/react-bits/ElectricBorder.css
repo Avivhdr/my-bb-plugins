@@ -1,0 +1,11 @@
+.compose-speed-layer .electric-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.compose-speed-layer .electric-border__canvas {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+}

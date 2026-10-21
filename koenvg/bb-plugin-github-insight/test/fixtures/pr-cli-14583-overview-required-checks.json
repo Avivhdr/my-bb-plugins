@@ -1,0 +1,142 @@
+{
+  "data": {
+    "repository": {
+      "viewerDefaultMergeMethod": "MERGE",
+      "mergeCommitAllowed": true,
+      "squashMergeAllowed": true,
+      "rebaseMergeAllowed": true,
+      "autoMergeAllowed": true,
+      "pullRequest": {
+        "number": 14583,
+        "title": "Add ACCESSIBILITY.md",
+        "state": "OPEN",
+        "isDraft": false,
+        "url": "https://github.com/cli/cli/pull/14583",
+        "id": "PR_kwDODKw3uc8AAAABGXroOw",
+        "headRefOid": "bc8e3163cde8fe3cd7ac7d0f5b7f19e69d8b8345",
+        "isMergeQueueEnabled": false,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "mergeQueueEntry": null,
+        "headRefName": "bagtoad/add-accessibility-md",
+        "baseRefName": "trunk",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "cli"
+        },
+        "author": {
+          "login": "BagToad"
+        },
+        "additions": 122,
+        "deletions": 0,
+        "changedFiles": 1,
+        "autoMergeRequest": null,
+        "reviewDecision": "APPROVED",
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "tidy-dev"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": false
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": null
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDODKw3uc8AAAAZ3C8jrA",
+                        "databaseId": 111068259244,
+                        "name": "build (ubuntu-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/cli/cli/actions/runs/37076749099/job/111068259244",
+                        "startedAt": "2026-10-02T23:16:08Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": true
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDODKw3uc8AAAAZ3C8j-g",
+                        "databaseId": 111068259322,
+                        "name": "build (windows-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/cli/cli/actions/runs/37076749099/job/111068259322",
+                        "startedAt": "2026-10-02T23:16:09Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": true
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDODKw3uc8AAAAZ3C8jpw",
+                        "databaseId": 111068259239,
+                        "name": "build (macos-latest)",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/cli/cli/actions/runs/37076749099/job/111068259239",
+                        "startedAt": "2026-10-02T23:16:16Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": true
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDODKw3uc8AAAAZ3C8k7g",
+                        "databaseId": 111068259566,
+                        "name": "label-external / label_issues",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/cli/cli/actions/runs/37076749668/job/111068259566",
+                        "startedAt": "2026-10-02T23:16:08Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDODKw3uc8AAAAZ3C8qbA",
+                        "databaseId": 111068260972,
+                        "name": "close-from-default-branch / close-from-default-branch",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/cli/cli/actions/runs/37076749668/job/111068260972",
+                        "startedAt": "2026-10-02T23:16:06Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

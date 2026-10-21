@@ -1,0 +1,51 @@
+{
+  "name": "@bb-plugins/markdown-document",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "import": "./src/index.tsx"
+    },
+    "./style.css": "./src/style.css"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "packageManager": "bun@1.4.3",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && bun build-css.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "bun run --cwd ../.. lint packages/markdown-document",
+    "format:check": "bun run --cwd ../.. format:check packages/markdown-document"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "refractor": "^5.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "github-slugger": "^2.0.0",
+    "unist-util-visit": "^5.1.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/hast": "^3.0.5",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^29.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  }
+}

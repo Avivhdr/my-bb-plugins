@@ -6,6 +6,14 @@
     { "name": "issues", "source": "./plugins/issues" },
     { "name": "claude-usage", "source": "./plugins/claude-usage" },
     { "name": "harbor-theme", "source": "./plugins/harbor-theme" },
-    { "name": "pinned-prompt", "source": "./plugins/pinned-prompt" }
+    { "name": "pinned-prompt", "source": "./plugins/pinned-prompt" },
+    { "name": "browser-annotate", "source": "./koenvg/bb-plugin-browser-annotate" },
+    { "name": "changes", "source": "./koenvg/bb-plugin-changes" },
+    { "name": "code-cleanup", "source": "./koenvg/bb-plugin-code-cleanup" },
+    { "name": "compose-chat", "source": "./koenvg/bb-plugin-compose-chat" },
+    { "name": "github-insight", "source": "./koenvg/bb-plugin-github-insight" },
+    { "name": "markdown-reader", "source": "./koenvg/bb-plugin-markdown-reader" },
+    { "name": "mcp", "source": "./koenvg/bb-plugin-mcp" },
+    { "name": "pr-thread-list", "source": "./koenvg/bb-plugin-pr-thread-list" }
   ]
 }

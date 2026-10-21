@@ -1,0 +1,151 @@
+{
+  "data": {
+    "repository": {
+      "viewerDefaultMergeMethod": "REBASE",
+      "mergeCommitAllowed": false,
+      "squashMergeAllowed": false,
+      "rebaseMergeAllowed": true,
+      "autoMergeAllowed": true,
+      "pullRequest": {
+        "number": 25693,
+        "title": "feat(libs-data-access): edit access control name and technical name from the header DEV-223916",
+        "state": "OPEN",
+        "isDraft": false,
+        "url": "https://github.com/collibra/frontend/pull/25693",
+        "id": "PR_kwDOHI7l-88AAAABGPtvgw",
+        "headRefOid": "60e83bf637a4b9688d033f31e5e69be11e8af9a7",
+        "isMergeQueueEnabled": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "mergeQueueEntry": null,
+        "headRefName": "fix/enqueue",
+        "baseRefName": "master",
+        "isCrossRepository": false,
+        "headRepositoryOwner": {
+          "login": "collibra"
+        },
+        "author": {
+          "login": "koenvg"
+        },
+        "additions": 120,
+        "deletions": 30,
+        "changedFiles": 12,
+        "autoMergeRequest": null,
+        "reviewDecision": "APPROVED",
+        "reviewRequests": {
+          "nodes": []
+        },
+        "latestOpinionatedReviews": {
+          "nodes": [
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "samih7"
+              }
+            },
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "TimmersThomas"
+              }
+            },
+            {
+              "state": "APPROVED",
+              "author": {
+                "__typename": "User",
+                "login": "simondesmetcol"
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": true
+            },
+            {
+              "isResolved": false
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "pageInfo": {
+                      "hasNextPage": false,
+                      "endCursor": "MTAw"
+                    },
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZyoM_9g",
+                        "databaseId": 110771781622,
+                        "name": "Build and Publish",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://github.com/collibra/frontend/actions/runs/36986128903/job/110771781622",
+                        "startedAt": "2026-10-02T08:49:44Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZyn4jrw",
+                        "databaseId": 110771446703,
+                        "name": "Wiz Data Scanner",
+                        "status": "COMPLETED",
+                        "conclusion": "SUCCESS",
+                        "detailsUrl": "https://app.wiz.io/findings/code-cicd-scans#~(event~(~%27006abf6f-d00b-87b6-b2c8-68b31d378769*2cCI_CD_SCAN*2c2026-10-02T08*3a48*3a16.545211084Z))",
+                        "startedAt": "2026-10-02T08:48:17Z",
+                        "title": "Wiz Data Scanner",
+                        "summary": "#### Wiz has not detected any Data Findings\n\n*<a href=\"https://app.wiz.io/findings/code-cicd-scans#~(event~(~%27006abf6f",
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "id": "CR_kwDOHI7l-88AAAAZyoc7bg",
+                        "databaseId": 110772042606,
+                        "name": "snyk-scan / container (${{ matrix.image }})",
+                        "status": "COMPLETED",
+                        "conclusion": "SKIPPED",
+                        "detailsUrl": "https://github.com/collibra/frontend/actions/runs/36986129341/job/110772042606",
+                        "startedAt": "2026-10-02T08:50:14Z",
+                        "title": null,
+                        "summary": null,
+                        "isRequired": false
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Storybook Publish",
+                        "state": "SUCCESS",
+                        "description": "1695 stories published",
+                        "targetUrl": "https://6357ed1fad45d873a4da9213-vbflepavkd.chromatic.com/",
+                        "createdAt": "2026-10-02T09:00:26Z",
+                        "isRequired": false
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,85 @@
+@property --review-agent-orbit {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.review-agent-running {
+  --review-agent-tone: var(--success);
+}
+
+.review-agent-ready {
+  --review-agent-tone: var(--timeline-accent);
+}
+
+.review-agent-needs-you {
+  --review-agent-tone: var(--attention);
+}
+
+.review-agent-failed {
+  --review-agent-tone: var(--destructive);
+}
+
+.review-agent-idle {
+  --review-agent-tone: var(--muted-foreground);
+  --review-agent-orbit-duration: 7s;
+  --review-agent-glow: 0%;
+}
+
+.review-agent-orbit {
+  --review-agent-edge: color-mix(in oklab, var(--review-agent-tone) 45%, var(--border));
+  --review-agent-metal: color-mix(in oklab, var(--review-agent-tone) 70%, var(--foreground));
+  --review-agent-light: color-mix(in oklab, var(--review-agent-tone) 25%, var(--background));
+  position: relative;
+  isolation: isolate;
+  border-color: transparent;
+}
+
+.review-agent-orbit::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--review-agent-orbit),
+    var(--review-agent-edge) 0deg,
+    var(--review-agent-metal) 55deg,
+    var(--review-agent-light) 117deg,
+    var(--review-agent-metal) 138deg,
+    var(--review-agent-edge) 185deg,
+    var(--review-agent-light) 285deg,
+    var(--review-agent-metal) 305deg,
+    var(--review-agent-edge) 350deg
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: review-agent-orbit var(--review-agent-orbit-duration, 3.8s) linear infinite;
+}
+
+.review-agent-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow: 0 2px 7px
+    color-mix(in oklab, var(--review-agent-tone) var(--review-agent-glow, 17%), transparent);
+}
+
+@keyframes review-agent-orbit {
+  to {
+    --review-agent-orbit: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-agent-orbit::before {
+    animation: none;
+    --review-agent-orbit: 115deg;
+  }
+}

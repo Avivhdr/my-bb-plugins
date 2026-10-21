@@ -1,0 +1,82 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/coverage/**", ".claude/**", ".pi/**"],
+  "overrides": [
+    {
+      "files": ["bb-plugin-github-insight/core/review-list.ts"],
+      "rules": {
+        "eslint/no-unused-vars": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-github-insight/core/summary.ts"],
+      "rules": {
+        "eslint/no-unused-vars": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-github-insight/queue/review-queue-service.ts"],
+      "rules": {
+        "eslint/no-unused-vars": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-github-insight/ui/draft-saves.ts"],
+      "rules": {
+        "unicorn/no-useless-spread": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-markdown-reader/destinations.ts"],
+      "rules": {
+        "eslint/no-control-regex": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-markdown-reader/source.ts"],
+      "rules": {
+        "eslint/no-control-regex": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-markdown-reader/tests/reader.test.tsx"],
+      "rules": {
+        "eslint/no-useless-escape": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-pr-thread-list/app.test.tsx"],
+      "rules": {
+        "eslint/no-unused-vars": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-tasks-plus/api/index.ts"],
+      "rules": {
+        "unicorn/no-new-array": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-tasks-plus/attachments/index.ts"],
+      "rules": {
+        "eslint/no-control-regex": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-tasks-plus/shell/keyboard.test.tsx"],
+      "rules": {
+        "eslint/no-unused-vars": "warn"
+      }
+    },
+    {
+      "files": ["bb-plugin-tasks-plus/views/list/list-preference.ts"],
+      "rules": {
+        "unicorn/no-useless-fallback-in-spread": "warn"
+      }
+    }
+  ]
+}

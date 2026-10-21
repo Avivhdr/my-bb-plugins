@@ -1,0 +1,23 @@
+.bb-thread-lattice-cell {
+  opacity: 0.25;
+  animation: bb-thread-lattice 972ms cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes bb-thread-lattice {
+  0%,
+  35%,
+  100% {
+    opacity: 0.25;
+  }
+  10%,
+  24% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-thread-lattice-cell {
+    animation: none;
+    opacity: 0.7;
+  }
+}

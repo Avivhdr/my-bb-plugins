@@ -1,0 +1,178 @@
+/* BB 0.44 inline activity titles have a leading-5 wrapper and shimmer
+   segments inside timeline rows. Keep the standalone composer status native.
+   One empty pseudo-element draws the lattice without replacing any text. */
+:root[data-compose-chat="active"]
+  [data-timeline-row-list]
+  [data-timeline-row-id]
+  .leading-5
+  > .animate-shine {
+  --compose-lattice-idle: color-mix(in oklab, currentColor 18%, transparent);
+  --compose-lattice-tail: color-mix(in oklab, currentColor 38%, transparent);
+  --compose-lattice-trail: color-mix(in oklab, currentColor 65%, transparent);
+  --compose-lattice-head: currentColor;
+  color: var(--muted-foreground);
+  background: none;
+  /* BB's shimmer is an APNG mask, not a CSS animation. */
+  -webkit-mask-image: none;
+  mask-image: none;
+  will-change: auto;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+  animation-play-state: inherit;
+}
+
+/* An active tool already has a native glyph. Let the lattice occupy that
+   column; the glyph returns automatically when BB removes the shimmer. */
+:root[data-compose-chat="active"]
+  [data-timeline-row-list]
+  [data-timeline-row-id]
+  span:has(> .leading-5 > .animate-shine)
+  > [data-icon-root] {
+  display: none;
+}
+
+:root[data-compose-chat="active"]
+  [data-timeline-row-list]
+  [data-timeline-row-id]
+  .leading-5
+  > .animate-shine::before {
+  content: "";
+  display: inline-block;
+  inline-size: 4px;
+  block-size: 4px;
+  margin-inline-end: calc(var(--compose-activity-inset) - 4px);
+  margin-block-end: 12px;
+  vertical-align: middle;
+  border-radius: 50%;
+  /* A zero-offset outer shadow cannot paint inside the dot's own box. */
+  background-color: var(--compose-lattice-idle);
+  box-shadow:
+    0 0 var(--compose-lattice-idle),
+    6px 0 var(--compose-lattice-idle),
+    12px 0 var(--compose-lattice-idle),
+    12px 6px var(--compose-lattice-idle),
+    12px 12px var(--compose-lattice-idle),
+    6px 12px var(--compose-lattice-idle),
+    0 12px var(--compose-lattice-idle),
+    0 6px var(--compose-lattice-idle),
+    6px 6px var(--compose-lattice-idle);
+  animation: compose-lattice-arrow 648ms linear infinite;
+  /* Inherit BB's pause state when its HeightTransition collapses. */
+  animation-play-state: inherit;
+}
+
+/* Row-major arrow phases match the reference's [1,2,3, 0,1,2, 1,2,3].
+   A left-center dot opens into a chevron, then sweeps right in 90ms steps. */
+@keyframes compose-lattice-arrow {
+  0%,
+  100% {
+    background-color: var(--compose-lattice-idle);
+    box-shadow:
+      0 0 var(--compose-lattice-idle),
+      6px 0 var(--compose-lattice-idle),
+      12px 0 var(--compose-lattice-idle),
+      0 6px var(--compose-lattice-idle),
+      6px 6px var(--compose-lattice-idle),
+      12px 6px var(--compose-lattice-idle),
+      0 12px var(--compose-lattice-idle),
+      6px 12px var(--compose-lattice-idle),
+      12px 12px var(--compose-lattice-idle);
+  }
+  13.889% {
+    background-color: var(--compose-lattice-idle);
+    box-shadow:
+      0 0 var(--compose-lattice-idle),
+      6px 0 var(--compose-lattice-idle),
+      12px 0 var(--compose-lattice-idle),
+      0 6px var(--compose-lattice-head),
+      6px 6px var(--compose-lattice-idle),
+      12px 6px var(--compose-lattice-idle),
+      0 12px var(--compose-lattice-idle),
+      6px 12px var(--compose-lattice-idle),
+      12px 12px var(--compose-lattice-idle);
+  }
+  27.778% {
+    background-color: var(--compose-lattice-head);
+    box-shadow:
+      0 0 var(--compose-lattice-head),
+      6px 0 var(--compose-lattice-idle),
+      12px 0 var(--compose-lattice-idle),
+      0 6px var(--compose-lattice-trail),
+      6px 6px var(--compose-lattice-head),
+      12px 6px var(--compose-lattice-idle),
+      0 12px var(--compose-lattice-head),
+      6px 12px var(--compose-lattice-idle),
+      12px 12px var(--compose-lattice-idle);
+  }
+  41.667% {
+    background-color: var(--compose-lattice-trail);
+    box-shadow:
+      0 0 var(--compose-lattice-trail),
+      6px 0 var(--compose-lattice-head),
+      12px 0 var(--compose-lattice-idle),
+      0 6px var(--compose-lattice-tail),
+      6px 6px var(--compose-lattice-trail),
+      12px 6px var(--compose-lattice-head),
+      0 12px var(--compose-lattice-trail),
+      6px 12px var(--compose-lattice-head),
+      12px 12px var(--compose-lattice-idle);
+  }
+  55.556% {
+    background-color: var(--compose-lattice-tail);
+    box-shadow:
+      0 0 var(--compose-lattice-tail),
+      6px 0 var(--compose-lattice-trail),
+      12px 0 var(--compose-lattice-head),
+      0 6px var(--compose-lattice-idle),
+      6px 6px var(--compose-lattice-tail),
+      12px 6px var(--compose-lattice-trail),
+      0 12px var(--compose-lattice-tail),
+      6px 12px var(--compose-lattice-trail),
+      12px 12px var(--compose-lattice-head);
+  }
+  69.444% {
+    background-color: var(--compose-lattice-idle);
+    box-shadow:
+      0 0 var(--compose-lattice-idle),
+      6px 0 var(--compose-lattice-tail),
+      12px 0 var(--compose-lattice-trail),
+      0 6px var(--compose-lattice-idle),
+      6px 6px var(--compose-lattice-idle),
+      12px 6px var(--compose-lattice-tail),
+      0 12px var(--compose-lattice-idle),
+      6px 12px var(--compose-lattice-tail),
+      12px 12px var(--compose-lattice-trail);
+  }
+  83.333% {
+    background-color: var(--compose-lattice-idle);
+    box-shadow:
+      0 0 var(--compose-lattice-idle),
+      6px 0 var(--compose-lattice-idle),
+      12px 0 var(--compose-lattice-tail),
+      0 6px var(--compose-lattice-idle),
+      6px 6px var(--compose-lattice-idle),
+      12px 6px var(--compose-lattice-idle),
+      0 12px var(--compose-lattice-idle),
+      6px 12px var(--compose-lattice-idle),
+      12px 12px var(--compose-lattice-tail);
+  }
+}
+
+:root[data-compose-chat="active"][data-compose-chat-motion="paused"]
+  [data-timeline-row-list]
+  [data-timeline-row-id]
+  .leading-5
+  > .animate-shine {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-compose-chat="active"]
+    [data-timeline-row-list]
+    [data-timeline-row-id]
+    .leading-5
+    > .animate-shine::before {
+    --compose-lattice-idle: color-mix(in oklab, currentColor 55%, transparent);
+    animation: none;
+  }
+}
