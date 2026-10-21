@@ -2,5 +2,8 @@
   "$schema": "https://getbb.app/schemas/plugins.schema.json",
   "schemaVersion": 1,
   "name": "my-bb-plugins",
-  "plugins": [{ "name": "issues", "source": "./plugins/issues" }]
+  "plugins": [
+    { "name": "issues", "source": "./plugins/issues" },
+    { "name": "claude-usage", "source": "./plugins/claude-usage" }
+  ]
 }
