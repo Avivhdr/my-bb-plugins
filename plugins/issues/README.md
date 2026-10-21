@@ -13,9 +13,19 @@ GitHub repository from the project's git remote.
   **Columns** reorders, adds, and removes them and recolors labels on GitHub.
 - **Drag to relabel.** Dropping a card on another column swaps the old column's
   label for the new one on GitHub.
+- **Collapsible columns.** The chevron on a column header folds it down to the
+  header and its count. bb remembers which columns are folded, per project.
 - **A value per issue.** Click the badge on a card to give it a value from 1 to
-  10. Cards sort by value, then by newest. The **Value** menu filters by it.
-  Values are stored in bb, not on GitHub.
+  10. Cards sort by value, then by newest. Values are stored in bb, not on
+  GitHub.
+- **Dependencies.** GitHub's "blocked by" and "blocking" links show as chips on
+  each card, and an arrow runs from each blocking card to the card it blocks.
+  Blocked cards are gray. Hovering a card highlights its arrows and the cards on
+  the other end. Clicking a chip scrolls to that issue, or opens it on GitHub
+  when it is in another repo or off the board.
+- **Filters.** The bar under the toolbar narrows the board by linked thread (all,
+  no thread, has thread), by dependency (all, blocked, blocking, unblocked), and
+  by value chips. Each project keeps its filters until the bb window reloads.
 - **Search.** `/` focuses the search box. It matches title, body, and `#number`,
   and shows why a card matched when the title alone doesn't.
 - **Sub-issues and linked PRs.** Sub-issues nest under their parent when both
@@ -24,8 +34,9 @@ GitHub repository from the project's git remote.
   close it. ←/→ page through the column. Leaving with unsaved text asks first.
 - **AI-drafted issues.** **Create** turns a rough note into a structured issue
   through Anthropic or Groq. Skip AI uses the note as the title.
-- **A thread per issue.** **Start thread** spawns a bb thread on the issue in the
-  project's default environment and links it to the card. **Draft in new
+- **A thread per issue.** **Start** on a card, or **Start thread** in its menu,
+  spawns a bb thread on the issue in the project's default environment and links
+  it to the card. **Draft in new
   thread…** opens the composer with the same prompt, for picking a provider or
   environment first.
 - **`bb issues` for agents.** `bb issues list` and `bb issues show <n>` give

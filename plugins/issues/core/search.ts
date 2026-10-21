@@ -108,6 +108,31 @@ export function cardMatchesValueFilter(card: BoardCard, selectedValues: Set<numb
 }
 
 /**
+ * Whether a card passes every active filter itself, not only as context around a
+ * match (a non-matching parent, or the rest of a matching parent's subtree). The task
+ * filter needs no check here: it drops non-matching cards outright.
+ */
+export function isFilterResult(
+  card: BoardCard,
+  terms: SearchTerms,
+  selectedValues: Set<number | 'none'>,
+): boolean {
+  return matchesCard(card, terms) && cardMatchesValueFilter(card, selectedValues)
+}
+
+/** Distinct issues in one column's card tree that `include` accepts, walking sub-issues. */
+export function countColumnResults(
+  cards: BoardCard[],
+  include: (card: BoardCard) => boolean = () => true,
+): number {
+  const seen = new Set<number>()
+  for (const card of flattenCards(cards)) {
+    if (include(card)) seen.add(card.issueNumber)
+  }
+  return seen.size
+}
+
+/**
  * Filter a card tree by value. Keeps a parent when the parent or any descendant matches.
  */
 function filterCardTreeByValue(card: BoardCard, selectedValues: Set<number | 'none'>): BoardCard | null {

@@ -4,11 +4,12 @@ import {
   mapCardTree,
   type BoardCard,
   type BoardModel,
+  type IssueRelation,
   type IssueThreadLink,
   type SubIssuesSummary,
 } from './board'
 import { parentIssueNumberFromUrl } from './github/parentIssue'
-import type { IssuesBoard, SubIssuesSummaryRaw } from './types'
+import type { IssueDependency, IssuesBoard, SubIssuesSummaryRaw } from './types'
 
 export function mapSubIssuesSummary(
   raw: SubIssuesSummaryRaw | null | undefined,
@@ -24,6 +25,18 @@ export function mapSubIssuesSummary(
 export interface PendingCardReconciliation {
   board: BoardModel
   pendingCards: BoardCard[]
+}
+
+function mapRelations(raw: IssueDependency[] | undefined): IssueRelation[] {
+  return (raw ?? [])
+    .filter((item) => item.state === 'open')
+    .map((item) => ({
+      number: item.number,
+      title: item.title,
+      htmlUrl: item.html_url,
+      state: item.state,
+      repo: item.repo,
+    }))
 }
 
 export function modelFromIssuesBoard(raw: IssuesBoard): BoardModel {
@@ -44,20 +57,28 @@ export function modelFromIssuesBoard(raw: IssuesBoard): BoardModel {
 
   return buildBoard({
     repo: `${raw.repo.owner}/${raw.repo.name}`,
-    issues: raw.issues.map((issue) => ({
-      number: issue.number,
-      title: issue.title,
-      body: issue.body,
-      labels: issue.labels.map((label) => label.name),
-      parentIssueNumber: parentIssueNumberFromUrl(issue.parent_issue_url, raw.repo),
-      subIssuesSummary: mapSubIssuesSummary(issue.sub_issues_summary),
-      linkedPullRequests: (issue.linked_pull_requests ?? []).map((pr) => ({
-        number: pr.number,
-        title: pr.title,
-        htmlUrl: pr.html_url,
-        state: pr.state,
-      })),
-    })),
+    issues: raw.issues.map((issue) => {
+      const blockedBy = mapRelations(issue.blocked_by)
+      const blocking = mapRelations(issue.blocking)
+      return {
+        number: issue.number,
+        title: issue.title,
+        body: issue.body,
+        labels: issue.labels.map((label) => label.name),
+        parentIssueNumber: parentIssueNumberFromUrl(issue.parent_issue_url, raw.repo),
+        subIssuesSummary: mapSubIssuesSummary(issue.sub_issues_summary),
+        linkedPullRequests: (issue.linked_pull_requests ?? []).map((pr) => ({
+          number: pr.number,
+          title: pr.title,
+          htmlUrl: pr.html_url,
+          state: pr.state,
+        })),
+        blockedBy,
+        blocking,
+        blockedByOpenCount: Math.max(issue.blocked_by_open_count ?? 0, blockedBy.length),
+        blockingOpenCount: Math.max(issue.blocking_open_count ?? 0, blocking.length),
+      }
+    }),
     columnLabels: raw.columnLabels,
     labelColors,
     values,

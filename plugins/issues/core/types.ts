@@ -38,6 +38,20 @@ export interface Issue {
    * closing references). Assembled from GraphQL, not from `GET /issues`.
    */
   linked_pull_requests?: LinkedPullRequest[]
+  /** Open issues that block this issue. Assembled from GraphQL. */
+  blocked_by?: IssueDependency[]
+  /** Open issues that this issue blocks. Assembled from GraphQL. */
+  blocking?: IssueDependency[]
+  /**
+   * Count of open blockers. This can be higher than `blocked_by.length` when
+   * GitHub returns only part of the list.
+   */
+  blocked_by_open_count?: number
+  /**
+   * Count of open issues this issue blocks. This can be higher than
+   * `blocking.length` when GitHub returns only part of the list.
+   */
+  blocking_open_count?: number
 }
 
 /** A pull request GitHub links to an issue. */
@@ -46,6 +60,19 @@ export interface LinkedPullRequest {
   title: string
   html_url: string
   state: string
+}
+
+/**
+ * One side of a GitHub issue dependency. Only open issues are included:
+ * a closed blocker no longer blocks the issue.
+ */
+export interface IssueDependency {
+  number: number
+  title: string
+  html_url: string
+  state: string
+  /** owner/name of the repository that contains this issue. */
+  repo: string
 }
 
 /** A repository label (column source). */

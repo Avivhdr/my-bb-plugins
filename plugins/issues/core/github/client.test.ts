@@ -5,8 +5,10 @@ import {
   encodePathSegment,
   listLabels,
   listLinkedPullRequestsByIssue,
+  listOpenIssueRelations,
   listOpenIssues,
   nextPageUrl,
+  parseIssueDependency,
   parseLinkedPullRequest,
   resolveLabels,
   updateLabelColor,
@@ -323,6 +325,8 @@ describe('listLinkedPullRequestsByIssue', () => {
     expect(init.method).toBe('POST')
     const body = JSON.parse(init.body as string) as { query: string; variables: Record<string, unknown> }
     expect(body.query).toContain('closedByPullRequestsReferences')
+    expect(body.query).toContain('blockedBy')
+    expect(body.query).toContain('blocking')
     expect(body.query).toContain('includeClosedPrs')
     expect(body.variables).toEqual({ owner: 'acme', name: 'repo', cursor: null })
     expect(linked.get(1)).toEqual([
@@ -374,5 +378,68 @@ describe('listLinkedPullRequestsByIssue', () => {
     stubFetch(jsonResponse(200, { errors: [{ message: 'API rate limit exceeded' }] }))
 
     await expect(listLinkedPullRequestsByIssue(TOKEN, REPO)).rejects.toThrow(/rate limit/)
+  })
+
+  it('keeps open blockers and the summary count, and drops closed blockers', async () => {
+    stubFetch(
+      graphqlResponse([
+        {
+          number: 7,
+          closedByPullRequestsReferences: { nodes: [] },
+          issueDependenciesSummary: { blockedBy: 3, blocking: 1 },
+          blockedBy: {
+            nodes: [
+              {
+                number: 2,
+                title: 'Schema',
+                state: 'OPEN',
+                url: 'https://github.com/acme/repo/issues/2',
+                repository: { nameWithOwner: 'acme/repo' },
+              },
+              {
+                number: 1,
+                title: 'Done already',
+                state: 'CLOSED',
+                url: 'https://github.com/acme/repo/issues/1',
+                repository: { nameWithOwner: 'acme/repo' },
+              },
+              null,
+            ],
+          },
+          blocking: {
+            nodes: [
+              {
+                number: 9,
+                title: 'Release',
+                state: 'OPEN',
+                url: 'https://github.com/other/repo/issues/9',
+                repository: { nameWithOwner: 'other/repo' },
+              },
+            ],
+          },
+        },
+      ]),
+    )
+
+    const relations = await listOpenIssueRelations(TOKEN, REPO)
+
+    expect(relations.blockedBy.get(7)).toEqual([
+      {
+        number: 2,
+        title: 'Schema',
+        html_url: 'https://github.com/acme/repo/issues/2',
+        state: 'open',
+        repo: 'acme/repo',
+      },
+    ])
+    expect(relations.blockedByOpenCount.get(7)).toBe(3)
+    expect(relations.blocking.get(7)?.[0]?.repo).toBe('other/repo')
+    expect(relations.blockingOpenCount.get(7)).toBe(1)
+  })
+})
+
+describe('parseIssueDependency', () => {
+  it('rejects a node without a repository', () => {
+    expect(parseIssueDependency({ number: 1, url: 'https://github.com/acme/repo/issues/1', state: 'OPEN' })).toBeNull()
   })
 })

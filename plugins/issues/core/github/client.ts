@@ -4,7 +4,7 @@
 // board fetches on open and after each edit rather than polling, so a cache would
 // buy little.
 
-import type { Issue, LinkedPullRequest, RepoLabel, RepoRef } from '../types'
+import type { Issue, IssueDependency, LinkedPullRequest, RepoLabel, RepoRef } from '../types'
 
 const API_ROOT = 'https://api.github.com'
 
@@ -209,7 +209,10 @@ export async function updateLabelColor(
 
 const GRAPHQL_URL = `${API_ROOT}/graphql`
 
-const LINKED_PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+// One page of open issues carries linked pull requests and issue dependencies.
+// GitHub caps each dependency list at 50. `issueDependenciesSummary.blockedBy`
+// counts open blockers only; a closed blocker does not keep the issue blocked.
+const OPEN_ISSUE_RELATIONS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     issues(states: [OPEN], first: 100, after: $cursor) {
       pageInfo { hasNextPage endCursor }
@@ -217,6 +220,13 @@ const LINKED_PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $curs
         number
         closedByPullRequestsReferences(first: 10, includeClosedPrs: true) {
           nodes { number title url state }
+        }
+        issueDependenciesSummary { blockedBy blocking }
+        blockedBy(first: 50) {
+          nodes { number title state url repository { nameWithOwner } }
+        }
+        blocking(first: 50) {
+          nodes { number title state url repository { nameWithOwner } }
         }
       }
     }
@@ -234,12 +244,23 @@ interface GraphqlLinkedPrNode {
   state?: unknown
 }
 
+interface GraphqlDependencyNode {
+  number?: unknown
+  title?: unknown
+  url?: unknown
+  state?: unknown
+  repository?: { nameWithOwner?: unknown } | null
+}
+
 interface GraphqlIssueNode {
   number?: unknown
   closedByPullRequestsReferences?: { nodes?: GraphqlLinkedPrNode[] | null } | null
+  blockedBy?: { nodes?: Array<GraphqlDependencyNode | null> | null } | null
+  blocking?: { nodes?: Array<GraphqlDependencyNode | null> | null } | null
+  issueDependenciesSummary?: { blockedBy?: unknown; blocking?: unknown } | null
 }
 
-interface GraphqlLinkedPrsData {
+interface GraphqlRelationsData {
   repository?: {
     issues?: {
       pageInfo: { hasNextPage: boolean; endCursor: string | null }
@@ -249,17 +270,17 @@ interface GraphqlLinkedPrsData {
 }
 
 interface GraphqlResponse {
-  data?: GraphqlLinkedPrsData
+  data?: GraphqlRelationsData
   errors?: GraphqlErrorBody[]
 }
 
-async function graphqlLinkedPrs(
+async function graphqlOpenIssueRelations(
   token: string,
   variables: Record<string, unknown>,
-): Promise<GraphqlLinkedPrsData> {
+): Promise<GraphqlRelationsData> {
   const response = await request<GraphqlResponse>(GRAPHQL_URL, token, {
     method: 'POST',
-    body: JSON.stringify({ query: LINKED_PULL_REQUESTS_QUERY, variables }),
+    body: JSON.stringify({ query: OPEN_ISSUE_RELATIONS_QUERY, variables }),
   })
   const message = response.errors?.map((error) => error.message).find((value) => typeof value === 'string')
   if (typeof message === 'string') throw new Error(`GitHub request failed: ${message}`)
@@ -281,22 +302,73 @@ export function parseLinkedPullRequest(raw: unknown): LinkedPullRequest | null {
   }
 }
 
+/** Map one GraphQL dependency node. Closed issues are dropped. */
+export function parseIssueDependency(raw: unknown): IssueDependency | null {
+  if (!raw || typeof raw !== 'object') return null
+  const node = raw as GraphqlDependencyNode
+  if (typeof node.number !== 'number' || !Number.isInteger(node.number) || node.number < 1) return null
+  if (typeof node.url !== 'string' || node.url.length === 0) return null
+  const repoName = node.repository?.nameWithOwner
+  if (typeof repoName !== 'string' || !repoName.includes('/')) return null
+  const state = typeof node.state === 'string' ? node.state.toLowerCase() : 'open'
+  if (state !== 'open') return null
+  return {
+    number: node.number,
+    title: typeof node.title === 'string' ? node.title : '',
+    html_url: node.url,
+    state: 'open',
+    repo: repoName,
+  }
+}
+
+function summaryCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return 0
+  return value
+}
+
+function uniqueDependencies(items: IssueDependency[]): IssueDependency[] {
+  const seen = new Set<string>()
+  const result: IssueDependency[] = []
+  for (const item of items) {
+    const key = `${item.repo.toLowerCase()}#${item.number}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(item)
+  }
+  return result
+}
+
+function dependencyList(nodes: Array<GraphqlDependencyNode | null> | null | undefined): IssueDependency[] {
+  return uniqueDependencies(
+    (nodes ?? []).map(parseIssueDependency).filter((item): item is IssueDependency => item !== null),
+  )
+}
+
+export interface OpenIssueRelations {
+  linkedPullRequests: Map<number, LinkedPullRequest[]>
+  blockedBy: Map<number, IssueDependency[]>
+  blocking: Map<number, IssueDependency[]>
+  blockedByOpenCount: Map<number, number>
+  blockingOpenCount: Map<number, number>
+}
+
 /**
- * Linked pull requests for each open issue, keyed by issue number.
+ * Linked pull requests and issue dependencies for each open issue.
  *
- * GitHub's REST issue list does not include the Development-sidebar links; this
- * reads `closedByPullRequestsReferences` over GraphQL. Issues with no linked PR
- * are omitted from the map.
+ * The REST issue list has neither. Issues with no link of a given kind are
+ * omitted from that map. Counts include open dependencies past the fetched
+ * page, so a partial node list still marks the issue blocked.
  */
-export async function listLinkedPullRequestsByIssue(
-  token: string,
-  repo: RepoRef,
-): Promise<Map<number, LinkedPullRequest[]>> {
-  const byIssue = new Map<number, LinkedPullRequest[]>()
+export async function listOpenIssueRelations(token: string, repo: RepoRef): Promise<OpenIssueRelations> {
+  const linkedPullRequests = new Map<number, LinkedPullRequest[]>()
+  const blockedBy = new Map<number, IssueDependency[]>()
+  const blocking = new Map<number, IssueDependency[]>()
+  const blockedByOpenCount = new Map<number, number>()
+  const blockingOpenCount = new Map<number, number>()
   let cursor: string | null = null
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const data = await graphqlLinkedPrs(token, {
+    const data = await graphqlOpenIssueRelations(token, {
       owner: repo.owner,
       name: repo.name,
       cursor,
@@ -309,7 +381,20 @@ export async function listLinkedPullRequestsByIssue(
       const prs = (issue.closedByPullRequestsReferences?.nodes ?? [])
         .map(parseLinkedPullRequest)
         .filter((pr): pr is LinkedPullRequest => pr !== null)
-      if (prs.length > 0) byIssue.set(issue.number, prs)
+      if (prs.length > 0) linkedPullRequests.set(issue.number, prs)
+
+      const blocked = dependencyList(issue.blockedBy?.nodes)
+      const blocks = dependencyList(issue.blocking?.nodes)
+      const blockedCount = Math.max(summaryCount(issue.issueDependenciesSummary?.blockedBy), blocked.length)
+      const blockingCount = Math.max(summaryCount(issue.issueDependenciesSummary?.blocking), blocks.length)
+      if (blockedCount > 0) {
+        blockedBy.set(issue.number, blocked)
+        blockedByOpenCount.set(issue.number, blockedCount)
+      }
+      if (blockingCount > 0) {
+        blocking.set(issue.number, blocks)
+        blockingOpenCount.set(issue.number, blockingCount)
+      }
     }
 
     if (!connection.pageInfo.hasNextPage) break
@@ -317,5 +402,14 @@ export async function listLinkedPullRequestsByIssue(
     if (!cursor) break
   }
 
-  return byIssue
+  return { linkedPullRequests, blockedBy, blocking, blockedByOpenCount, blockingOpenCount }
+}
+
+/** Linked pull requests for each open issue, keyed by issue number. */
+export async function listLinkedPullRequestsByIssue(
+  token: string,
+  repo: RepoRef,
+): Promise<Map<number, LinkedPullRequest[]>> {
+  const relations = await listOpenIssueRelations(token, repo)
+  return relations.linkedPullRequests
 }

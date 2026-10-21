@@ -155,4 +155,55 @@ describe('board model', () => {
       },
     ])
   })
+
+  it('maps open blockers and drops closed ones', () => {
+    const model = modelFromIssuesBoard({
+      repo: { owner: 'octo', name: 'cat' },
+      issues: [
+        {
+          number: 1,
+          title: 'Waiting',
+          body: null,
+          state: 'open',
+          html_url: 'https://github.com/octo/cat/issues/1',
+          labels: [{ name: 'bug', color: 'ff0000' }],
+          blocked_by: [
+            {
+              number: 2,
+              title: 'Schema',
+              html_url: 'https://github.com/octo/cat/issues/2',
+              state: 'open',
+              repo: 'octo/cat',
+            },
+            {
+              number: 3,
+              title: 'Old',
+              html_url: 'https://github.com/octo/cat/issues/3',
+              state: 'closed',
+              repo: 'octo/cat',
+            },
+          ],
+          blocked_by_open_count: 4,
+          blocking: [],
+          blocking_open_count: 0,
+        },
+      ],
+      labels: [{ name: 'bug', color: 'ff0000' }],
+      values: {},
+      columnLabels: ['bug'],
+    })
+
+    const card = model.columns[0]?.cards[0]
+    expect(card?.blockedBy).toEqual([
+      {
+        number: 2,
+        title: 'Schema',
+        htmlUrl: 'https://github.com/octo/cat/issues/2',
+        state: 'open',
+        repo: 'octo/cat',
+      },
+    ])
+    expect(card?.blockedByOpenCount).toBe(4)
+    expect(card?.blockingOpenCount).toBe(0)
+  })
 })

@@ -17,6 +17,14 @@ const linkedPullRequestSchema = z.object({
   state: z.string(),
 });
 
+const issueDependencySchema = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  html_url: z.string(),
+  state: z.string(),
+  repo: z.string(),
+});
+
 const issueSchema = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -34,6 +42,10 @@ const issueSchema = z.object({
     .nullable()
     .optional(),
   linked_pull_requests: z.array(linkedPullRequestSchema).optional(),
+  blocked_by: z.array(issueDependencySchema).optional(),
+  blocking: z.array(issueDependencySchema).optional(),
+  blocked_by_open_count: z.number().int().optional(),
+  blocking_open_count: z.number().int().optional(),
 });
 
 const repoSchema = z.object({ owner: z.string(), name: z.string() });
@@ -67,6 +79,16 @@ export const rpcContract = defineRpcContract({
         issueNumber,
         value: z.number().int().min(1).max(10).nullable(),
       })
+      .strict(),
+    output: z.null(),
+  },
+  issues_get_collapsed_columns: {
+    input: z.object({ projectId }).strict(),
+    output: z.array(z.string()),
+  },
+  issues_set_collapsed_columns: {
+    input: z
+      .object({ projectId, labels: z.array(z.string().max(200)).max(200) })
       .strict(),
     output: z.null(),
   },

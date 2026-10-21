@@ -265,10 +265,12 @@ export function useIssuesBoard(rpc: IssuesRpc, projectId: string | null) {
           title: card.title,
         });
         threadId = result.threadId;
+        // Reload so the card shows its new thread chip and the thread filter sees it.
+        if (isCurrent(t.generation)) await loadBoard();
       });
       return threadId;
     },
-    [rpc, withBusy],
+    [rpc, withBusy, loadBoard],
   );
 
   const recolorLabel = useCallback(
