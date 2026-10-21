@@ -5,6 +5,7 @@
   "plugins": [
     { "name": "issues", "source": "./plugins/issues" },
     { "name": "claude-usage", "source": "./plugins/claude-usage" },
-    { "name": "harbor-theme", "source": "./plugins/harbor-theme" }
+    { "name": "harbor-theme", "source": "./plugins/harbor-theme" },
+    { "name": "pinned-prompt", "source": "./plugins/pinned-prompt" }
   ]
 }
