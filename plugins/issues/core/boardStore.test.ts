@@ -3,11 +3,13 @@ import {
   clearRepoBoardState,
   computeLabelUsage,
   keepLiveThreadLinks,
+  readCollapsedColumns,
   readColumnLabels,
   readRepoOverride,
   readThreadLinks,
   readValues,
   resolveColumnLabels,
+  writeCollapsedColumns,
   writeColumnLabels,
   writeRepoOverride,
   writeThreadLink,
@@ -135,6 +137,7 @@ describe('resolveColumnLabels', () => {
 
     expect(await resolveColumnLabels(storage, 'P-1', repoLabels, [issue(1, [])])).toEqual([])
     expect(await readColumnLabels(storage, 'P-1')).toBeNull()
+    expect(await readCollapsedColumns(storage, 'P-1')).toEqual([])
 
     // Once issues carry labels, the next open seeds for real.
     expect(await resolveColumnLabels(storage, 'P-1', repoLabels, [issue(1, ['bug'])])).toEqual(['bug'])
@@ -205,11 +208,25 @@ describe('thread links', () => {
   })
 })
 
+describe('collapsed columns', () => {
+  it('reads nothing collapsed before the first write', async () => {
+    expect(await readCollapsedColumns(fakeStorage(), 'P-1')).toEqual([])
+  })
+
+  it('round-trips the labels, the Other column included, per project', async () => {
+    const storage = fakeStorage()
+    await writeCollapsedColumns(storage, 'P-1', ['bug', ''])
+    expect(await readCollapsedColumns(storage, 'P-1')).toEqual(['bug', ''])
+    expect(await readCollapsedColumns(storage, 'P-2')).toEqual([])
+  })
+})
+
 describe('clearRepoBoardState', () => {
   it('forgets values, columns, and thread links but keeps the override', async () => {
     const storage = fakeStorage()
     await writeValue(storage, 'P-1', 7, 5)
     await writeColumnLabels(storage, 'P-1', ['bug'])
+    await writeCollapsedColumns(storage, 'P-1', ['bug'])
     await writeThreadLink(storage, 'P-1', 7, { threadId: 'thr_a', title: null })
     await writeRepoOverride(storage, 'P-1', 'acme/widgets')
     await writeValue(storage, 'P-2', 7, 9)

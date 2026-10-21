@@ -1,5 +1,6 @@
 // Board state that GitHub does not hold: the per-issue value, the curated column
-// order, the threads started from issues, and an optional repository override.
+// order, the collapsed columns, the threads started from issues, and an optional
+// repository override.
 // All of it is project-scoped plugin storage, so the plugin owns everything it
 // persists.
 
@@ -9,6 +10,7 @@ import type { IssueThreadLink } from './board'
 
 const VALUES_KEY = 'issueValues'
 const COLUMN_LABELS_KEY = 'columnLabels'
+const COLLAPSED_COLUMNS_KEY = 'collapsedColumns'
 const THREAD_LINKS_KEY = 'issueThreads'
 const REPO_OVERRIDE_KEY = 'repo'
 
@@ -124,6 +126,24 @@ export async function resolveColumnLabels(
   return seeded
 }
 
+/**
+ * The labels of the columns the user collapsed ('' is the "No label / Other"
+ * column). A stored label that is no longer a column stays stored, so the column
+ * comes back collapsed if the label returns to the board.
+ */
+export async function readCollapsedColumns(storage: ProjectStorage, projectId: string): Promise<string[]> {
+  const stored = await storage.project(projectId).get<unknown>(COLLAPSED_COLUMNS_KEY)
+  return Array.isArray(stored) ? stored.filter((label): label is string => typeof label === 'string') : []
+}
+
+export async function writeCollapsedColumns(
+  storage: ProjectStorage,
+  projectId: string,
+  labels: string[],
+): Promise<void> {
+  await storage.project(projectId).set<string[]>(COLLAPSED_COLUMNS_KEY, labels)
+}
+
 /** Issue number (as a string) → the bb thread started from that issue. */
 export type ThreadLinks = Record<string, IssueThreadLink>
 
@@ -194,6 +214,7 @@ export async function clearRepoBoardState(storage: ProjectStorage, projectId: st
     serializePerProject(projectId, VALUES_KEY, () => scope.delete(VALUES_KEY)),
     serializePerProject(projectId, THREAD_LINKS_KEY, () => scope.delete(THREAD_LINKS_KEY)),
     scope.delete(COLUMN_LABELS_KEY),
+    scope.delete(COLLAPSED_COLUMNS_KEY),
   ])
 }
 

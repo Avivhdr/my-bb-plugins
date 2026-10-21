@@ -97,8 +97,10 @@ describe("registration", () => {
         "issues_create_issue",
         "issues_edit_issue",
         "issues_get_board",
+        "issues_get_collapsed_columns",
         "issues_get_config",
         "issues_refine_ticket",
+        "issues_set_collapsed_columns",
         "issues_set_column_labels",
         "issues_set_repo",
         "issues_set_value",
@@ -125,6 +127,52 @@ describe("issues_get_board", () => {
     expect(board.issues.map((issue) => issue.number)).toEqual([1, 3]);
     expect(board.columnLabels).toEqual(["bug"]);
     expect(board.threadLinks).toEqual({});
+  });
+
+  it("attaches open blocking links from GitHub's issue dependencies", async () => {
+    const { harness } = await setup();
+    const dependency = (number: number) => ({
+      number,
+      title: `Issue ${number}`,
+      state: "OPEN",
+      url: `https://github.com/acme/repo/issues/${number}`,
+      repository: { nameWithOwner: "acme/repo" },
+    });
+    stubGitHub({
+      "/graphql": {
+        data: {
+          repository: {
+            issues: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [
+                {
+                  number: 1,
+                  closedByPullRequestsReferences: { nodes: [] },
+                  issueDependenciesSummary: { blockedBy: 0, blocking: 1 },
+                  blockedBy: { nodes: [] },
+                  blocking: { nodes: [dependency(3)] },
+                },
+                {
+                  number: 3,
+                  closedByPullRequestsReferences: { nodes: [] },
+                  issueDependenciesSummary: { blockedBy: 1, blocking: 0 },
+                  blockedBy: { nodes: [dependency(1)] },
+                  blocking: { nodes: [] },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    const board = (await harness.behavior.callRpc("issues_get_board", { projectId: "proj_1" })) as {
+      issues: { number: number; blocked_by: { number: number }[]; blocking_open_count: number }[];
+    };
+
+    const [first, third] = board.issues;
+    expect(first!.blocking_open_count).toBe(1);
+    expect(third!.blocked_by.map((issue) => issue.number)).toEqual([1]);
   });
 
   it("uses the gh token when no token is configured", async () => {
@@ -335,5 +383,19 @@ describe("bb issues", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("--project");
+  });
+});
+
+describe("collapsed columns", () => {
+  it("stores the collapsed column labels per project", async () => {
+    const { harness } = await setup();
+
+    expect(await harness.behavior.callRpc("issues_get_collapsed_columns", { projectId: "proj_1" })).toEqual([]);
+    await harness.behavior.callRpc("issues_set_collapsed_columns", { projectId: "proj_1", labels: ["bug", ""] });
+
+    expect(await harness.behavior.callRpc("issues_get_collapsed_columns", { projectId: "proj_1" })).toEqual([
+      "bug",
+      "",
+    ]);
   });
 });

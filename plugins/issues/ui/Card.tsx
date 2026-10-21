@@ -1,5 +1,6 @@
 import { useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
 import type { BoardCard } from "../core/board";
+import { cardIsBlocked } from "../core/dependency";
 import { issueUrl } from "../core/issueThread";
 import { cardExcerpt, type SearchTerms } from "../core/search";
 import {
@@ -20,6 +21,8 @@ import { Icon } from "@/components/ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { HighlightedText, LinkedPullRequestLinks, MetaChip, ValueGrid, valueBadgeStyle } from "./bits";
+import { DependencyMarks } from "./DependencyMarks";
+import { HIGHLIGHT_CLASS, useDependencyFocus } from "./dependencyFocus";
 
 /** Everything a card can ask the page to do with an issue. */
 export interface IssueActions {
@@ -145,6 +148,7 @@ function SubIssueList({
   onOpen: (card: BoardCard) => void;
   actions: IssueActions;
 }) {
+  const focus = useDependencyFocus();
   return (
     <ul
       aria-label={`Sub-issues of #${parentNumber}`}
@@ -153,6 +157,7 @@ function SubIssueList({
       {issues.map((issue) => {
         const excerpt = cardExcerpt(issue, terms);
         const expanded = isExpanded(issue.issueNumber);
+        const blocked = cardIsBlocked(issue);
         return (
           <li key={issue.issueNumber} className="flex min-w-0 flex-col">
             <div className="flex min-w-0 items-start gap-0.5">
@@ -170,8 +175,14 @@ function SubIssueList({
                   role="button"
                   tabIndex={0}
                   data-sub-issue-row=""
+                  data-issue-number={issue.issueNumber}
                   aria-label={`Issue #${issue.issueNumber}: ${issue.title}`}
-                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-md px-1.5 py-1 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className={cn(
+                    "flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-md px-1.5 py-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                    // A blocked row is gray; an unblocked row stays bright inside a gray parent.
+                    blocked ? "bg-muted text-muted-foreground hover:bg-state-hover" : "bg-background hover:bg-state-hover",
+                    focus.isHighlighted(issue.issueNumber) && HIGHLIGHT_CLASS,
+                  )}
                   onClick={(event) => {
                     event.stopPropagation();
                     onOpen(issue);
@@ -193,6 +204,16 @@ function SubIssueList({
                     ) : null}
                     <LinkedPullRequestLinks pullRequests={issue.linkedPullRequests} onOpenUrl={actions.onOpenUrl} />
                   </div>
+                  {issue.blockedByOpenCount > 0 || issue.blockingOpenCount > 0 ? (
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
+                      <DependencyMarks
+                        card={issue}
+                        repo={actions.repo}
+                        onOpenUrl={actions.onOpenUrl}
+                        onRevealIssue={focus.reveal}
+                      />
+                    </div>
+                  ) : null}
                   {excerpt ? (
                     <p className="m-0 text-[11px] leading-snug text-muted-foreground">
                       <HighlightedText text={excerpt} terms={terms} />
@@ -280,10 +301,20 @@ export function Card({
 }) {
   const excerpt = cardExcerpt(card, terms);
   const threadLink = card.threadLink;
+  const focus = useDependencyFocus();
+  // A blocked issue waits on others. The gray surface marks that end of an arrow.
+  const blocked = cardIsBlocked(card);
 
   return (
     <IssueContextMenu card={card} actions={actions}>
-      <article className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3 shadow-xs transition-colors hover:border-foreground/30">
+      <article
+        className={cn(
+          "flex flex-col gap-2 rounded-lg border p-3 transition-colors",
+          blocked
+            ? "border-foreground/15 bg-muted hover:border-foreground/30"
+            : "border-border bg-background shadow-xs hover:border-foreground/30",
+        )}
+      >
         <div
           role="button"
           tabIndex={0}
@@ -292,7 +323,12 @@ export function Card({
           onKeyDown={(event) => activateOnKey(event, onOpen)}
         >
           <div className="flex items-start gap-2">
-            <span className="min-w-0 flex-1 break-words text-sm font-medium text-foreground">
+            <span
+              className={cn(
+                "min-w-0 flex-1 break-words text-sm font-medium",
+                blocked ? "text-muted-foreground" : "text-foreground",
+              )}
+            >
               <HighlightedText text={card.title} terms={terms} />
             </span>
             <ValueBadge card={card} onSetValue={actions.onSetValue} />
@@ -304,6 +340,7 @@ export function Card({
           ) : null}
           <div className="flex flex-wrap items-center gap-1">
             <span className="text-xs text-muted-foreground">#{card.issueNumber}</span>
+            <DependencyMarks card={card} repo={actions.repo} onOpenUrl={actions.onOpenUrl} onRevealIssue={focus.reveal} />
             {card.parentIssueNumber !== null ? (
               <span className="text-xs text-muted-foreground">Parent #{card.parentIssueNumber}</span>
             ) : null}
@@ -356,6 +393,21 @@ export function Card({
                 }}
               >
                 <Icon name="ArrowUpRight" className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Start a thread on this issue"
+                aria-label="Start a thread on this issue"
+                disabled={actions.busy}
+                className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-state-hover hover:text-foreground disabled:opacity-50"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  actions.onStartThread(card);
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <Icon name="Play" fallback="ArrowRight" className="size-3.5" />
+                Start
               </button>
             </div>
           </div>

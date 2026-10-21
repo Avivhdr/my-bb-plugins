@@ -6,6 +6,9 @@ import {
   filterBoard,
   countIssues,
   countMatchingIssues,
+  countColumnResults,
+  filterBoardByValue,
+  isFilterResult,
   cardExcerpt,
   highlightSegments,
 } from './search'
@@ -189,6 +192,43 @@ describe('filterBoard nested sub-issues', () => {
   it('keeps the full subtree when the parent matches', () => {
     const out = filterBoard(board(), ['blocked'])
     expect(out.columns[0]!.cards[0]!.subIssues.map((c) => c.issueNumber)).toEqual([506])
+  })
+})
+
+describe('countColumnResults', () => {
+  const board = () =>
+    buildBoard({
+      repo: 'a/b',
+      issues: [
+        { number: 35, title: 'Blocked By field', body: null, labels: ['bug'] },
+        { number: 506, title: 'item a', body: 'child work', labels: ['bug'], parentIssueNumber: 35 },
+        { number: 11, title: 'Unrelated crash', body: null, labels: ['bug'] },
+      ],
+      columnLabels: ['bug'],
+      values: { 11: 3 },
+    })
+  const noValues = new Set<number | 'none'>()
+
+  it('counts every issue in the column, sub-issues included, with no filter', () => {
+    expect(countColumnResults(board().columns[0]!.cards)).toBe(3)
+  })
+
+  it('counts search matches only, not the parent kept as context', () => {
+    const cards = filterBoard(board(), ['item']).columns[0]!.cards
+    expect(countColumnResults(cards, (c) => isFilterResult(c, ['item'], noValues))).toBe(1)
+  })
+
+  it('counts value filter matches only, not the parent kept as context', () => {
+    const selected = new Set<number | 'none'>([3])
+    const cards = filterBoardByValue(board(), selected).columns[0]!.cards
+    expect(countColumnResults(cards, (c) => isFilterResult(c, [], selected))).toBe(1)
+  })
+
+  it('needs a card to pass both search and the value filter', () => {
+    const selected = new Set<number | 'none'>(['none'])
+    const cards = board().columns[0]!.cards
+    expect(countColumnResults(cards, (c) => isFilterResult(c, ['crash'], selected))).toBe(0)
+    expect(countColumnResults(cards, (c) => isFilterResult(c, ['item'], selected))).toBe(1)
   })
 })
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { clearIssuesFilterSession } from "./core/filterSession";
 
 const PROJECTS = [
   { id: "proj_1", name: "acme", kind: "standard", gitRemoteUrl: null, createdAt: 0, updatedAt: 0 },
@@ -18,6 +19,27 @@ function issue(number: number, title: string, labels: string[], body: string | n
     labels: labels.map((name) => ({ name, color: name === "bug" ? "d73a4a" : "0e8a16" })),
     linked_pull_requests: [],
   };
+}
+
+function dependency(number: number) {
+  return {
+    number,
+    title: `Issue ${number}`,
+    html_url: `https://github.com/acme/repo/issues/${number}`,
+    state: "open",
+    repo: "acme/repo",
+  };
+}
+
+/** #1 blocks #2; #3 has no links. */
+function dependencyBoard() {
+  return boardResponse({
+    issues: [
+      { ...issue(1, "Crash on save", ["bug"]), blocking: [dependency(2)], blocking_open_count: 1 },
+      { ...issue(2, "Dark mode", ["feature"]), blocked_by: [dependency(1)], blocked_by_open_count: 1 },
+      issue(3, "Unsorted idea", []),
+    ],
+  });
 }
 
 function boardResponse(overrides: Record<string, unknown> = {}) {
@@ -56,6 +78,8 @@ async function renderPage(
       rpc: {
         issues_get_board: () => boardResponse(),
         issues_ai_status: () => ({ ready: false }),
+        issues_get_collapsed_columns: () => [],
+        issues_set_collapsed_columns: () => null,
         ...options.rpc,
       },
     },
@@ -66,6 +90,8 @@ async function renderPage(
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  clearIssuesFilterSession();
+  vi.restoreAllMocks();
 });
 
 describe("Issues page", () => {
@@ -198,5 +224,132 @@ describe("Issues page", () => {
 
     expect(await slot.findByText("Crash on save")).toBeTruthy();
     expect(repo).toBe("acme/repo");
+  });
+
+  it("marks blocked and blocking issues on their cards", async () => {
+    const slot = await renderPage({ rpc: { issues_get_board: () => dependencyBoard() } });
+
+    const feature = await slot.findByRole("region", { name: "feature" });
+    expect(within(feature).getByText("Blocked by")).toBeTruthy();
+    expect(within(feature).getByRole("button", { name: /Show #1 Issue 1, which blocks this issue/ })).toBeTruthy();
+    const bug = slot.getByRole("region", { name: "bug" });
+    expect(within(bug).getByText("Blocks")).toBeTruthy();
+  });
+
+  it("filters the board to blocked, blocking, or unblocked issues", async () => {
+    const slot = await renderPage({ rpc: { issues_get_board: () => dependencyBoard() } });
+    await slot.findByText("Crash on save");
+    const filter = slot.getByRole("radiogroup", { name: "Filter issues by dependency" });
+
+    fireEvent.click(within(filter).getByRole("radio", { name: "Show blocked issues" }));
+    expect(slot.getByText("Dark mode")).toBeTruthy();
+    expect(slot.queryByText("Crash on save")).toBeNull();
+    expect(slot.queryByText("Unsorted idea")).toBeNull();
+
+    fireEvent.click(within(filter).getByRole("radio", { name: "Show blocking issues" }));
+    expect(slot.getByText("Crash on save")).toBeTruthy();
+    expect(slot.queryByText("Dark mode")).toBeNull();
+
+    fireEvent.click(within(filter).getByRole("radio", { name: "Show issues that are not blocked" }));
+    expect(slot.getByText("Crash on save")).toBeTruthy();
+    expect(slot.getByText("Unsorted idea")).toBeTruthy();
+    expect(slot.queryByText("Dark mode")).toBeNull();
+  });
+
+  it("says so when no issue is blocked", async () => {
+    const slot = await renderPage();
+    await slot.findByText("Crash on save");
+
+    fireEvent.click(slot.getByRole("radio", { name: "Show blocked issues" }));
+
+    expect(slot.getByText("No issue is blocked by another issue.")).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: "Show all" }));
+    expect(slot.getByText("Crash on save")).toBeTruthy();
+  });
+
+  it("draws an arrow from the blocking card to the blocked card", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const issueNumber = Number((this as HTMLElement).dataset?.issueNumber);
+      if (!issueNumber) return DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 1000 });
+      return DOMRect.fromRect({ x: issueNumber * 320, y: 20, width: 300, height: 80 });
+    });
+    const slot = await renderPage({ rpc: { issues_get_board: () => dependencyBoard() } });
+    await slot.findByText("Crash on save");
+
+    const arrows = await slot.findByTestId("dependency-arrows");
+    expect(arrows.querySelectorAll("path[d]").length).toBe(2); // the marker head and one arrow
+  });
+
+  it("filters by value chips in the filter bar", async () => {
+    const slot = await renderPage();
+    await slot.findByText("Crash on save");
+
+    fireEvent.click(slot.getByRole("button", { name: "Filter by value 8" }));
+
+    expect(slot.getByText("Dark mode")).toBeTruthy();
+    expect(slot.queryByText("Crash on save")).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: "Clear value filter" }));
+    expect(slot.getByText("Crash on save")).toBeTruthy();
+  });
+
+  it("filters by whether an issue has a linked thread", async () => {
+    const slot = await renderPage({
+      rpc: {
+        issues_get_board: () => boardResponse({ threadLinks: { "1": { threadId: "thr_1", title: null } } }),
+      },
+    });
+    await slot.findByText("Crash on save");
+
+    fireEvent.click(slot.getByRole("radio", { name: "Issues with a linked thread" }));
+    expect(slot.getByText("Crash on save")).toBeTruthy();
+    expect(slot.queryByText("Dark mode")).toBeNull();
+
+    fireEvent.click(slot.getByRole("radio", { name: "Issues without a linked thread" }));
+    expect(slot.queryByText("Crash on save")).toBeNull();
+    expect(slot.getByText("Dark mode")).toBeTruthy();
+  });
+
+  it("keeps a project's filters when switching away and back", async () => {
+    const slot = await renderPage();
+    await slot.findByText("Crash on save");
+    fireEvent.click(slot.getByRole("button", { name: "Filter by value 8" }));
+    cleanup();
+
+    const again = await renderPage();
+    await again.findByText("Dark mode");
+    expect(again.queryByText("Crash on save")).toBeNull();
+    expect(again.getByRole("button", { name: "Filter by value 8" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("collapses a column and saves the choice", async () => {
+    const slot = await renderPage({ rpc: { issues_get_collapsed_columns: () => ["feature"] } });
+    const bug = await slot.findByRole("region", { name: "bug" });
+    await waitFor(() => expect(slot.queryByText("Dark mode")).toBeNull());
+
+    fireEvent.click(within(bug).getByRole("button", { name: "Collapse bug" }));
+
+    expect(slot.queryByText("Crash on save")).toBeNull();
+    expect(within(bug).getByText("1")).toBeTruthy();
+    expect(slot.inspection.rpcCalls).toContainEqual(
+      expect.objectContaining({
+        method: "issues_set_collapsed_columns",
+        input: { projectId: "proj_1", labels: ["feature", "bug"] },
+      }),
+    );
+  });
+
+  it("starts a thread from the card's Start button", async () => {
+    const slot = await renderPage({
+      rpc: { issues_start_thread: () => ({ threadId: "thr_7" }) },
+    });
+    const bug = await slot.findByRole("region", { name: "bug" });
+
+    fireEvent.click(within(bug).getByRole("button", { name: "Start a thread on this issue" }));
+
+    await waitFor(() =>
+      expect(slot.inspection.navigateCalls).toContainEqual(
+        expect.objectContaining({ method: "toThread", threadId: "thr_7" }),
+      ),
+    );
   });
 });

@@ -1,9 +1,9 @@
 // bb-plugin-issues: a per-project Kanban board over GitHub Issues.
 //
-// The board's data comes from two places. GitHub holds the issues, labels, and
-// linked pull requests; the plugin's kv store holds what GitHub does not: each
-// issue's 1..10 value, the curated column order, the threads started from issues,
-// and an optional repository override per project.
+// The board's data comes from two places. GitHub holds the issues, labels, linked
+// pull requests, and blocking links; the plugin's kv store holds what GitHub does
+// not: each issue's 1..10 value, the curated column order, the collapsed columns,
+// the threads started from issues, and an optional repository override per project.
 import {
   PluginCliError,
   cliCommand,
@@ -22,11 +22,13 @@ import {
   clearRepoBoardState,
   computeLabelUsage,
   keepLiveThreadLinks,
+  readCollapsedColumns,
   readColumnLabels,
   readRepoOverride,
   readThreadLinks,
   readValues,
   resolveColumnLabels,
+  writeCollapsedColumns,
   writeColumnLabels,
   writeRepoOverride,
   writeThreadLink,
@@ -37,7 +39,7 @@ import {
   createIssue,
   editIssue,
   listLabels,
-  listLinkedPullRequestsByIssue,
+  listOpenIssueRelations,
   listOpenIssues,
   updateLabelColor,
 } from "./core/github/client";
@@ -158,14 +160,18 @@ export default async function plugin(bb: BbPluginApi) {
   bb.rpc.register(rpcContract, {
     issues_get_board: async ({ projectId }) => {
       const { repo, token } = await connect(projectId);
-      const [issues, labels, linkedByIssue] = await Promise.all([
+      const [issues, labels, relations] = await Promise.all([
         listOpenIssues(token, repo),
         listLabels(token, repo),
-        listLinkedPullRequestsByIssue(token, repo),
+        listOpenIssueRelations(token, repo),
       ]);
       const issuesWithLinks = issues.map((issue) => ({
         ...issue,
-        linked_pull_requests: linkedByIssue.get(issue.number) ?? [],
+        linked_pull_requests: relations.linkedPullRequests.get(issue.number) ?? [],
+        blocked_by: relations.blockedBy.get(issue.number) ?? [],
+        blocking: relations.blocking.get(issue.number) ?? [],
+        blocked_by_open_count: relations.blockedByOpenCount.get(issue.number) ?? 0,
+        blocking_open_count: relations.blockingOpenCount.get(issue.number) ?? 0,
       }));
       const [values, columnLabels, threadLinks] = await Promise.all([
         readValues(storage, projectId),
@@ -177,6 +183,13 @@ export default async function plugin(bb: BbPluginApi) {
 
     issues_set_value: async ({ projectId, issueNumber, value }) => {
       await writeValue(storage, projectId, issueNumber, value);
+      return null;
+    },
+
+    issues_get_collapsed_columns: ({ projectId }) => readCollapsedColumns(storage, projectId),
+
+    issues_set_collapsed_columns: async ({ projectId, labels }) => {
+      await writeCollapsedColumns(storage, projectId, labels);
       return null;
     },
 

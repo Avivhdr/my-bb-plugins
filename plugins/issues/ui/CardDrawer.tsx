@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import type { BoardCard } from "../core/board";
+import type { BoardCard, IssueRelation } from "../core/board";
+import { relationLabel, unlistedRelationCount } from "../core/dependency";
 import { issueUrl } from "../core/issueThread";
 import type { RepoLabel } from "../core/types";
 import {
@@ -30,6 +31,40 @@ function isTextField(element: Element | null): boolean {
     element instanceof HTMLInputElement ||
     element instanceof HTMLTextAreaElement ||
     (element instanceof HTMLElement && element.isContentEditable)
+  );
+}
+
+/** One side of the open issue's dependencies, each issue a link to GitHub. */
+function DependencyList({
+  heading,
+  relations,
+  openCount,
+  repo,
+  onOpenUrl,
+}: {
+  heading: string;
+  relations: IssueRelation[];
+  openCount: number;
+  repo: string;
+  onOpenUrl: (url: string) => void;
+}) {
+  const unlisted = unlistedRelationCount(relations, openCount);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-sm text-muted-foreground">{heading}</span>
+      {relations.map((relation) => (
+        <button
+          key={`${relation.repo}#${relation.number}`}
+          type="button"
+          className="self-start rounded-md px-1.5 py-0.5 text-left text-sm hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          onClick={() => onOpenUrl(relation.htmlUrl)}
+        >
+          {relationLabel(relation, repo)}
+          {relation.title ? ` ${relation.title}` : ""}
+        </button>
+      ))}
+      {unlisted > 0 ? <p className="m-0 text-sm text-muted-foreground">+{unlisted} more on GitHub</p> : null}
+    </div>
   );
 }
 
@@ -283,6 +318,30 @@ export function CardDrawer({
             <SectionLabel>Value</SectionLabel>
             <ValueGrid className="max-w-xs" current={card.value} disabled={busy} onPick={onSetValue} />
           </div>
+
+          {card.blockedByOpenCount > 0 || card.blockingOpenCount > 0 ? (
+            <div className="flex flex-col gap-2">
+              <SectionLabel>Dependencies</SectionLabel>
+              {card.blockedByOpenCount > 0 ? (
+                <DependencyList
+                  heading="Blocked by"
+                  relations={card.blockedBy}
+                  openCount={card.blockedByOpenCount}
+                  repo={actions.repo}
+                  onOpenUrl={actions.onOpenUrl}
+                />
+              ) : null}
+              {card.blockingOpenCount > 0 ? (
+                <DependencyList
+                  heading="Blocks"
+                  relations={card.blocking}
+                  openCount={card.blockingOpenCount}
+                  repo={actions.repo}
+                  onOpenUrl={actions.onOpenUrl}
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           {card.parentIssueNumber !== null || card.subIssues.length > 0 || card.subIssuesSummary ? (
             <div className="flex flex-col gap-2">

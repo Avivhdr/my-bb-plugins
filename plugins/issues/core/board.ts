@@ -16,6 +16,14 @@ export interface LinkedPullRequest {
   state: string
 }
 
+export interface IssueRelation {
+  number: number
+  title: string
+  htmlUrl: string
+  state: string
+  repo: string
+}
+
 export interface BoardIssue {
   number: number
   title: string
@@ -24,6 +32,10 @@ export interface BoardIssue {
   parentIssueNumber?: number | null
   subIssuesSummary?: SubIssuesSummary | null
   linkedPullRequests?: LinkedPullRequest[]
+  blockedBy?: IssueRelation[]
+  blocking?: IssueRelation[]
+  blockedByOpenCount?: number
+  blockingOpenCount?: number
 }
 /** A bb thread started from an issue on this board. */
 export interface IssueThreadLink {
@@ -42,6 +54,12 @@ export interface BoardCard {
   subIssues: BoardCard[]
   subIssuesSummary: SubIssuesSummary | null
   linkedPullRequests: LinkedPullRequest[]
+  blockedBy: IssueRelation[]
+  blocking: IssueRelation[]
+  /** Open blockers. Can be higher than `blockedBy.length` when the list is partial. */
+  blockedByOpenCount: number
+  /** Open issues this card blocks. Can be higher than `blocking.length`. */
+  blockingOpenCount: number
 }
 
 export interface BoardColumn {
@@ -76,9 +94,25 @@ export const OTHER_TITLE = 'No label / Other'
 
 export function emptyHierarchy(): Pick<
   BoardCard,
-  'parentIssueNumber' | 'subIssues' | 'subIssuesSummary' | 'linkedPullRequests'
+  | 'parentIssueNumber'
+  | 'subIssues'
+  | 'subIssuesSummary'
+  | 'linkedPullRequests'
+  | 'blockedBy'
+  | 'blocking'
+  | 'blockedByOpenCount'
+  | 'blockingOpenCount'
 > {
-  return { parentIssueNumber: null, subIssues: [], subIssuesSummary: null, linkedPullRequests: [] }
+  return {
+    parentIssueNumber: null,
+    subIssues: [],
+    subIssuesSummary: null,
+    linkedPullRequests: [],
+    blockedBy: [],
+    blocking: [],
+    blockedByOpenCount: 0,
+    blockingOpenCount: 0,
+  }
 }
 
 /** Depth-first flattening of a card tree, parent before its sub-issues. */
@@ -238,6 +272,10 @@ export function buildBoard(input: BuildBoardInput): BoardModel {
     subIssues: [],
     subIssuesSummary: i.subIssuesSummary ?? null,
     linkedPullRequests: i.linkedPullRequests ?? [],
+    blockedBy: i.blockedBy ?? [],
+    blocking: i.blocking ?? [],
+    blockedByOpenCount: i.blockedByOpenCount ?? i.blockedBy?.length ?? 0,
+    blockingOpenCount: i.blockingOpenCount ?? i.blocking?.length ?? 0,
   }))
 
   return {

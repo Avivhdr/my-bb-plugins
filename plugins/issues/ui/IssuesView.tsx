@@ -2,17 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { toast } from "sonner";
 import type { BoardCard } from "../core/board";
 import { buildIssueThreadPrompt, issueUrl } from "../core/issueThread";
+import { isFilterResult } from "../core/search";
 import { isSearchFocusKey, isTypingTarget } from "../core/searchHotkey";
 import type { LabelUsage } from "../core/types";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -21,7 +14,15 @@ import type { IssueActions } from "./Card";
 import { CardDrawer } from "./CardDrawer";
 import { ColumnSettingsDialog } from "./ColumnSettingsDialog";
 import { CreateDialog } from "./CreateDialog";
-import { useIssuesDrawer, useIssuesSearch, useValueFilter, type ValueOption } from "./useBoardView";
+import { FilterBar } from "./FilterBar";
+import {
+  useCollapsedColumns,
+  useDependencyFilter,
+  useIssuesDrawer,
+  useIssuesSearch,
+  useThreadFilter,
+  useValueFilter,
+} from "./useBoardView";
 import type { IssuesRpc } from "./useIssuesBoard";
 import { useIssuesBoard } from "./useIssuesBoard";
 
@@ -33,52 +34,11 @@ export interface IssuesHost {
   copyText: (text: string) => Promise<boolean>;
 }
 
-const VALUE_OPTIONS: ValueOption[] = ["none", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
 function CenteredState({ children }: { children: ReactNode }) {
   return (
     <div role="status" className="flex h-full flex-col items-center justify-center gap-3 px-4 py-12 text-center">
       {children}
     </div>
-  );
-}
-
-function ValueFilterMenu({
-  selected,
-  onToggle,
-  onClear,
-}: {
-  selected: ReadonlySet<ValueOption>;
-  onToggle: (value: ValueOption) => void;
-  onClear: () => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" aria-label="Filter by value">
-          <Icon name="SlidersHorizontal" />
-          Value{selected.size > 0 ? ` · ${selected.size}` : ""}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
-        {VALUE_OPTIONS.map((value) => (
-          <DropdownMenuCheckboxItem
-            key={value}
-            checked={selected.has(value)}
-            onSelect={(event) => event.preventDefault()}
-            onCheckedChange={() => onToggle(value)}
-          >
-            {value === "none" ? "No value" : `Value ${value}`}
-          </DropdownMenuCheckboxItem>
-        ))}
-        {selected.size > 0 ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onClear}>Clear filter</DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -134,28 +94,32 @@ export function IssuesView({
   projectPicker: ReactNode;
 }) {
   const issues = useIssuesBoard(rpc, projectId);
-  // The drawer and search read the unfiltered board: the drawer so paging through a
-  // column's queue survives later query changes, search so it has the full set.
+  // The drawer reads the unfiltered board, so paging through a column's queue
+  // survives later filter changes. The filters chain: thread, then dependency, then
+  // search, then value. Each step sees the board the previous one produced. The
+  // thread, dependency, and value choices are remembered per project.
   const drawer = useIssuesDrawer(issues.board);
-  const search = useIssuesSearch(issues.board);
-  const valueFilter = useValueFilter(search.board);
+  const threadFilter = useThreadFilter(issues.board, projectId);
+  const dependencyFilter = useDependencyFilter(threadFilter.board, projectId);
+  const search = useIssuesSearch(dependencyFilter.board);
+  const valueFilter = useValueFilter(search.board, projectId);
+  const collapsedColumns = useCollapsedColumns(rpc, projectId);
 
   const [createLabels, setCreateLabels] = useState<string[] | null>(null);
   const [aiReady, setAiReady] = useState(false);
   const [columnConfig, setColumnConfig] = useState<{ labels: LabelUsage[]; columnLabels: string[] } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // A project switch closes everything that belonged to the previous board.
+  // A project switch closes everything that belonged to the previous board. Search
+  // starts empty on each board; the other filters come back as that project left them.
   const { close: closeDrawer } = drawer;
   const { clear: clearSearch } = search;
-  const { clear: clearValueFilter } = valueFilter;
   useEffect(() => {
     closeDrawer();
     setCreateLabels(null);
     setColumnConfig(null);
     clearSearch();
-    clearValueFilter();
-  }, [projectId, closeDrawer, clearSearch, clearValueFilter]);
+  }, [projectId, closeDrawer, clearSearch]);
 
   const overlayOpen = drawer.open !== null || createLabels !== null || columnConfig !== null;
 
@@ -232,6 +196,12 @@ export function IssuesView({
 
   const board = issues.board;
   const filtered = valueFilter.board;
+  const { terms } = search;
+  const { selected: selectedValues } = valueFilter;
+  const isResult = useMemo(() => {
+    const values = new Set(selectedValues);
+    return (card: BoardCard) => isFilterResult(card, terms, values);
+  }, [terms, selectedValues]);
 
   let body: ReactNode;
   if (!projectId) {
@@ -255,6 +225,32 @@ export function IssuesView({
         onRetry={() => void issues.loadBoard()}
         onSetRepo={(repo) => void issues.setRepo(repo)}
       />
+    );
+  } else if (board && threadFilter.isEmpty) {
+    body = (
+      <CenteredState>
+        <p className="m-0 text-sm text-muted-foreground">
+          {threadFilter.mode === "without" ? "Every issue already has a linked thread." : "No issue has a linked thread."}
+        </p>
+        <Button variant="outline" size="sm" onClick={threadFilter.clear}>
+          Show all
+        </Button>
+      </CenteredState>
+    );
+  } else if (board && dependencyFilter.isEmpty) {
+    body = (
+      <CenteredState>
+        <p className="m-0 text-sm text-muted-foreground">
+          {dependencyFilter.mode === "blocked"
+            ? "No issue is blocked by another issue."
+            : dependencyFilter.mode === "blocking"
+              ? "No issue blocks another issue."
+              : "Every issue is blocked by another issue."}
+        </p>
+        <Button variant="outline" size="sm" onClick={dependencyFilter.clear}>
+          Show all
+        </Button>
+      </CenteredState>
     );
   } else if (board && search.active && search.matchCount === 0) {
     body = (
@@ -280,6 +276,9 @@ export function IssuesView({
         columns={filtered.columns}
         terms={search.terms}
         actions={actions}
+        collapsedLabels={collapsedColumns.collapsed}
+        isResult={isResult}
+        onToggleCollapsed={collapsedColumns.toggle}
         onCardClick={drawer.openFrom}
         onAddCard={(label) => openCreate(label ? [label] : [])}
         onMoveCard={(issueNumber, from, to) => void issues.moveCard(issueNumber, from, to)}
@@ -302,13 +301,6 @@ export function IssuesView({
           </button>
         ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {board ? (
-            <ValueFilterMenu
-              selected={valueFilter.selected}
-              onToggle={valueFilter.toggle}
-              onClear={valueFilter.clear}
-            />
-          ) : null}
           <div className="relative flex items-center gap-2">
             <Icon
               name="Search"
@@ -355,6 +347,18 @@ export function IssuesView({
           </Button>
         </div>
       </div>
+
+      {board ? (
+        <FilterBar
+          threadMode={threadFilter.mode}
+          onThreadMode={threadFilter.setMode}
+          dependencyMode={dependencyFilter.mode}
+          onDependencyMode={dependencyFilter.setMode}
+          values={valueFilter.selected}
+          onToggleValue={valueFilter.toggle}
+          onClearValues={valueFilter.clear}
+        />
+      ) : null}
 
       {board && issues.error && !overlayOpen ? (
         <div role="alert" className="flex items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
