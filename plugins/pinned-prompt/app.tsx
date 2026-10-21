@@ -105,7 +105,7 @@ function PinnedPrompts() {
         aria-label={`Scroll to your message: ${text}`}
         onClick={() => void scrollToRow(bar.view, bar.pin.rowId, bar.pin.index, positions)}
         style={{ position: "fixed", top: bar.top, left: bar.left, width: bar.width }}
-        className="z-30 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-1.5 text-left text-sm text-foreground shadow-sm backdrop-blur hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="z-30 flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-1.5 text-left text-sm text-foreground shadow-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5 shrink-0 text-muted-foreground">
           <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
