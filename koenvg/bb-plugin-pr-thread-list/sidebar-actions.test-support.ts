@@ -28,6 +28,7 @@ export function renderSidebarSlot<Props extends object>(
         [
           ["pin", "setPinned", { pinned: thread.pinnedAt === null }],
           ["read", "setRead", { read: thread.isUnread }],
+          ["rename", "requestRename", {}],
           ["archive", "archive", {}],
           ["delete", "requestDelete", {}],
         ].map(([id, method, fields]) => ({

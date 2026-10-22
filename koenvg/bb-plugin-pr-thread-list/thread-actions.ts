@@ -33,10 +33,8 @@ export function threadMenuItems(
     },
     {
       label: "Rename",
-      run: () => {
-        const title = askName("Rename thread", thread.displayTitle);
-        if (title) return actions.rename(title);
-      },
+      // window.prompt is a no-op in the desktop app, so use bb's own dialog.
+      run: () => actions.rename(),
     },
   ];
   if (splitAvailable)

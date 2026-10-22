@@ -695,7 +695,6 @@ describe("thread list slot", () => {
     expect(slot.getByTitle("Unsent draft").textContent).toBe("Draft");
   });
   it("routes row menu actions through BB and reorders pinned threads", () => {
-    const rename = vi.spyOn(window, "prompt").mockReturnValue("Renamed");
     const sdk = {
       threads: {
         reorderPinned: vi.fn(async () => ({}) as never),
@@ -719,11 +718,9 @@ describe("thread list slot", () => {
     });
     open();
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
-    expect(rename).toHaveBeenCalled();
     expect(slot.inspection.threadActionCalls).toContainEqual({
-      method: "rename",
+      method: "requestRename",
       threadId: "t1",
-      title: "Renamed",
     });
     open();
     fireEvent.click(screen.getByRole("menuitem", { name: "Mark unread" }));
@@ -744,7 +741,6 @@ describe("thread list slot", () => {
       method: "requestDelete",
       threadId: "t1",
     });
-    rename.mockRestore();
   });
   it("offers pin reordering only between pinned top threads", () => {
     const sdk = { threads: { reorderPinned: vi.fn(async () => ({}) as never) } };

@@ -1,7 +1,6 @@
 import {
   experimental_useThreadActions,
   useBbNavigate,
-  useSdk,
   type PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 
@@ -20,7 +19,8 @@ export interface ThreadListNavigation {
 export interface ThreadListActions extends ThreadListNavigation {
   togglePinned(): Promise<void>;
   toggleRead(): Promise<void>;
-  rename(title: string): Promise<unknown>;
+  /** Opens bb's rename dialog. */
+  rename(): Promise<void>;
   archive(): Promise<void>;
   requestDelete(): Promise<void>;
 }
@@ -40,7 +40,6 @@ export function useThreadListNavigation(): ThreadListNavigation {
 /** Row-bound native actions retain the host's archive and delete safeguards. */
 export function useThreadListActions(thread: PluginSidebarThread): ThreadListActions {
   const navigate = useThreadListNavigation();
-  const sdk = useSdk();
   const entries = experimental_useThreadActions({
     ...thread,
     environment: thread.environment?.id
@@ -57,7 +56,7 @@ export function useThreadListActions(thread: PluginSidebarThread): ThreadListAct
     ...navigate,
     togglePinned: () => run("pin"),
     toggleRead: () => run("read"),
-    rename: (title) => sdk.threads.update({ threadId: thread.id, title }),
+    rename: () => run("rename"),
     archive: () => run("archive"),
     requestDelete: () => run("delete"),
   };

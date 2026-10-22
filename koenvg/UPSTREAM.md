@@ -23,6 +23,7 @@ The root `package.json`, `bun.lock`, `.bun-version`, `.oxlintrc.json` and `.oxfm
 ## Local changes
 
 - `bb-plugin-pr-thread-list`: keep the server SDK out of the frontend bundle, so the plugin builds when bb installs it. Upstream PR: https://github.com/koenvg/bb-plugins/pull/339 (not merged).
+- `bb-plugin-pr-thread-list`: the row menu's Rename runs bb's own rename action (`bb--core/rename`), which opens bb's rename dialog. Upstream used `window.prompt`, which does nothing in the desktop app.
 
 Re-apply these after a sync if upstream still lacks them.
 
