@@ -17,6 +17,7 @@ import {
   useSdk,
   useSidebarThreadDraft,
   useSidebarThreadRowStatus,
+  useSidebarThreadRowStatuses,
   useSidebarThreadShortcut,
   type PluginBrowserBbSdk,
   type PluginSidebarSection,
@@ -65,12 +66,28 @@ import {
 } from "./list-model";
 import type { Tab } from "./tabs";
 import { DEFAULT_PREFERENCES, readPreferences, savePreferences } from "./preferences";
-import { isSettled, needsAttention, relativeTime, rowState, workItems } from "./row-cues";
+import {
+  isMainBranch,
+  isSettled,
+  needsAttention,
+  relativeTime,
+  rowState,
+  workItems,
+} from "./row-cues";
 import { RunningGlyph } from "./running-glyph";
 
 const OVERSCAN = 5;
 
-const HEIGHTS: Record<ListItem["kind"], number> = { group: 36, thread: 48 };
+const HEIGHTS = { group: 36, thread: 32, detailedThread: 48 };
+
+/** A thread row takes a second line only for a PR badge, a plugin status, or activity. */
+function hasDetail(
+  thread: PluginSidebarThread,
+  pullRequest: PrSummary | null | undefined,
+  rowStatus: PluginSidebarThreadRowStatus | null | undefined,
+): boolean {
+  return pullRequest != null || rowStatus != null || workItems(thread).length > 0;
+}
 const CHILD_INDENT = 24;
 
 type Provider = ExperimentalProviderIconProps["provider"] & { displayName?: string };
@@ -172,20 +189,8 @@ function RowDetail({
       title: rowStatus.label,
       error: rowStatus.tone === "error",
     });
-  const branch = thread.environment?.branchName;
-  const cell =
-    "col-start-2 row-start-2 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground";
-  if (items.length === 0)
-    return branch ? (
-      <span className={`${cell} gap-1`} title={branch}>
-        <Icon name="GitBranch" className="size-3 shrink-0" aria-hidden />
-        <span className="truncate font-mono text-[11px]">{branch}</span>
-      </span>
-    ) : (
-      <span className={cell} />
-    );
   return (
-    <span className={cell}>
+    <span className="col-start-2 row-start-2 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
       {items.map((item) => (
         <Tip
           key={item.key}
@@ -203,6 +208,18 @@ function RowDetail({
   );
 }
 
+/** Home for main, a branch for anything else; hover for the branch name. */
+function BranchMark({ branch }: { branch: string | null | undefined }) {
+  if (!branch) return null;
+  const main = isMainBranch(branch);
+  return (
+    <Tip text={branch} className="z-10 inline-flex shrink-0 items-center text-muted-foreground">
+      <Icon name={main ? "Home" : "GitBranch"} className="size-3.5" aria-hidden />
+      <span className="sr-only">{main ? "On main" : `On branch ${branch}`}</span>
+    </Tip>
+  );
+}
+
 function ThreadRow({
   item,
   provider,
@@ -214,10 +231,12 @@ function ThreadRow({
   sections,
   pinned,
   pullRequest,
+  detailed,
   wakeAt,
   snoozes,
 }: {
   provider: Provider;
+  detailed: boolean;
   wakeAt: number | undefined;
   snoozes: SnoozeControls;
   pullRequest: PrSummary | null;
@@ -246,10 +265,13 @@ function ThreadRow({
   return (
     <div
       className={`group/row relative flex min-w-0 items-start ${item.context ? "opacity-60" : ""}`}
-      style={{ height: HEIGHTS.thread, paddingLeft: `${item.depth * CHILD_INDENT}px` }}
+      style={{
+        height: detailed ? HEIGHTS.detailedThread : HEIGHTS.thread,
+        paddingLeft: `${item.depth * CHILD_INDENT}px`,
+      }}
     >
       <div
-        className={`grid h-full min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.25rem] content-center items-center gap-x-2 rounded-lg px-2 ${selected ? "bg-sidebar-accent" : "group-hover/row:bg-sidebar-accent/60"}`}
+        className={`grid h-full min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)_auto] ${detailed ? "grid-rows-[1.25rem_1.25rem]" : "grid-rows-[1.25rem]"} content-center items-center gap-x-2 rounded-lg px-2 ${selected ? "bg-sidebar-accent" : "group-hover/row:bg-sidebar-accent/60"}`}
       >
         {item.hasChildren ? (
           <span className="relative col-start-1 row-start-1 flex size-4">
@@ -275,33 +297,36 @@ function ThreadRow({
         ) : (
           <ProviderGlyph thread={thread} provider={provider} quiet={quiet} />
         )}
-        <a
-          {...splitProps}
-          href={thread.href}
-          data-sidebar-thread-shortcut-target=""
-          data-sidebar-thread-id={thread.id}
-          aria-current={selected ? "page" : undefined}
-          aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
-          onPointerDownCapture={() => cancelPrPanelRequest()}
-          onClick={(event) => {
-            if (
-              event.defaultPrevented ||
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
-            )
-              return;
-            event.preventDefault();
-            cancelPrPanelRequest();
-            actions.open(thread.id);
-            onNavigate();
-          }}
-          className={`col-start-2 row-start-1 truncate text-[13px] after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring ${quiet ? "text-muted-foreground" : "text-foreground"} ${thread.isUnread ? "font-semibold" : ""}`}
-        >
-          {thread.displayTitle}
-        </a>
+        <span className="col-start-2 row-start-1 flex min-w-0 items-center gap-1.5">
+          <BranchMark branch={thread.environment?.branchName} />
+          <a
+            {...splitProps}
+            href={thread.href}
+            data-sidebar-thread-shortcut-target=""
+            data-sidebar-thread-id={thread.id}
+            aria-current={selected ? "page" : undefined}
+            aria-keyshortcuts={shortcut?.ariaKeyshortcuts}
+            onPointerDownCapture={() => cancelPrPanelRequest()}
+            onClick={(event) => {
+              if (
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              cancelPrPanelRequest();
+              actions.open(thread.id);
+              onNavigate();
+            }}
+            className={`min-w-0 truncate text-[13px] after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring ${quiet ? "text-muted-foreground" : "text-foreground"} ${thread.isUnread ? "font-semibold" : ""}`}
+          >
+            {thread.displayTitle}
+          </a>
+        </span>
         <span className="relative z-10 col-start-3 row-start-1 flex items-center justify-end gap-1.5">
           {shortcut ? (
             <kbd className="rounded border border-border px-1 font-sans text-[10px] leading-4 text-muted-foreground">
@@ -329,8 +354,10 @@ function ThreadRow({
             </span>
           </span>
         </span>
-        <RowDetail thread={thread} rowStatus={rowStatus} />
-        <span className="relative z-10 col-start-3 row-start-2 flex justify-end">
+        {detailed ? <RowDetail thread={thread} rowStatus={rowStatus} /> : null}
+        <span
+          className={detailed ? "relative z-10 col-start-3 row-start-2 flex justify-end" : "hidden"}
+        >
           <PrBadgeView
             pullRequest={pullRequest}
             onActivate={() =>
@@ -555,6 +582,7 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   const now = useNow();
   const { providers } = experimental_useProviders();
   const insight = useSummaries();
+  const rowStatuses = useSidebarThreadRowStatuses();
   const pullRequests = useMemo(
     () =>
       new Map(
@@ -624,11 +652,25 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+  const isDetailed = (thread: PluginSidebarThread) =>
+    hasDetail(thread, pullRequests.get(thread.id), rowStatuses.get(thread.id));
   const offsets = useMemo(() => {
     const tops = [0];
-    for (const item of items) tops.push(tops.at(-1)! + HEIGHTS[item.kind]);
+    for (const item of items) {
+      const height =
+        item.kind === "group"
+          ? HEIGHTS.group
+          : hasDetail(
+                item.thread,
+                pullRequests.get(item.thread.id),
+                rowStatuses.get(item.thread.id),
+              )
+            ? HEIGHTS.detailedThread
+            : HEIGHTS.thread;
+      tops.push(tops.at(-1)! + height);
+    }
     return tops;
-  }, [items]);
+  }, [items, pullRequests, rowStatuses]);
   const indexAt = (y: number) => {
     let low = 0;
     let high = items.length;
@@ -749,6 +791,7 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
                   sections={sections}
                   pinned={pinned}
                   pullRequest={pullRequests.get(item.thread.id) ?? null}
+                  detailed={isDetailed(item.thread)}
                   wakeAt={snoozes.snoozed.get(item.thread.id)}
                   snoozes={snoozes}
                 />

@@ -559,7 +559,7 @@ describe("thread list slot", () => {
     expect(slot.queryAllByTestId("pr-hook-consumer").length).toBeLessThan(40);
     expect(slot.queryByRole("link", { name: /Thread 180$/ })).toBeNull();
     const scroller = slot.getByTestId("thread-scroll");
-    scroller.scrollTop = 36 + 48 * 180;
+    scroller.scrollTop = 36 + 32 * 180;
     fireEvent.scroll(scroller);
     expect(slot.getByRole("link", { name: /Thread 180$/ })).toBeTruthy();
     scroller.scrollTop = 0;
@@ -601,7 +601,7 @@ describe("thread list slot", () => {
     expect(tip(slot, "Queued message waiting")).toBeTruthy();
     expect(slot.getByRole("button", { name: "Collapse Needs you" })).toBeTruthy();
   });
-  it("marks a running thread and shows its branch when nothing else needs saying", () => {
+  it("marks a running thread and shows its branch as an icon on one line", () => {
     const environment = {
       id: "e1",
       name: "Worktree",
@@ -617,7 +617,29 @@ describe("thread list slot", () => {
     expect(working.querySelector(".sr-only")?.textContent).toBe("Working");
     expect(working.textContent).toBe("Working");
     expect(slot.container.querySelector("time")).toBeNull();
-    expect(slot.getByText("feature/sidebar")).toBeTruthy();
+    expect(slot.getByText("On branch feature/sidebar", { selector: ".sr-only" })).toBeTruthy();
+    const row = slot
+      .getByRole("link", { name: "Prepare release" })
+      .closest<HTMLElement>(".group\\/row")!;
+    expect(row.style.height).toBe("32px");
+  });
+  it("marks main with its own icon and gives a queued row a second line", () => {
+    const environment = {
+      id: "e1",
+      name: "Checkout",
+      branchName: "main",
+      path: "/tmp/repo",
+      isWorktree: false,
+      providerId: null,
+      workspaceDisplayKind: null,
+    };
+    const slot = mount([thread({ environment, queuedWork: "waiting" })]);
+    showTab(slot, "All");
+    expect(slot.getByText("On main", { selector: ".sr-only" })).toBeTruthy();
+    const row = slot
+      .getByRole("link", { name: "Prepare release" })
+      .closest<HTMLElement>(".group\\/row")!;
+    expect(row.style.height).toBe("48px");
   });
   it("groups list options into labelled radio sets and names the order for the sort field", () => {
     const slot = mount();
