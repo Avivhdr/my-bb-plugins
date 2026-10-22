@@ -9,6 +9,7 @@ bb plugins. My own live under `plugins/`. The ones copied from [koenvg/bb-plugin
 | [pinned-prompt](plugins/pinned-prompt) | Keeps your last message pinned at the top of the chat while you read a long reply |
 | [thread-name](plugins/thread-name) | A Name field in the new-thread composer, so threads start with your name instead of the prompt |
 | [harbor-theme](plugins/harbor-theme) | The default bb palette with a soft blue gradient on the window frame |
+| [archive-button](plugins/archive-button) | A light red Archive button in the thread header |
 | [browser-annotate](koenvg/bb-plugin-browser-annotate) | Mark areas in a Browser tab and send them to the agent as cropped screenshots with comments |
 | [changes](koenvg/bb-plugin-changes) | A Changes tab with the thread's diff and inline review comments |
 | [code-cleanup](koenvg/bb-plugin-code-cleanup) | Per-project guidance that asks agents to record cleanup as separate tasks |
