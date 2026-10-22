@@ -7,6 +7,7 @@
     { "name": "claude-usage", "source": "./plugins/claude-usage" },
     { "name": "harbor-theme", "source": "./plugins/harbor-theme" },
     { "name": "pinned-prompt", "source": "./plugins/pinned-prompt" },
+    { "name": "thread-name", "source": "./plugins/thread-name" },
     { "name": "browser-annotate", "source": "./koenvg/bb-plugin-browser-annotate" },
     { "name": "changes", "source": "./koenvg/bb-plugin-changes" },
     { "name": "code-cleanup", "source": "./koenvg/bb-plugin-code-cleanup" },
