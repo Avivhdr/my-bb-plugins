@@ -67,6 +67,7 @@ function PinnedPrompts() {
           indexes.current.get(view.threadId) ?? null,
           rowBoxes(view),
           area.top + BAR_SPACE,
+          area.bottom,
           (rowId) => rowText(view, rowId),
         );
         if (stale) load(view.threadId);

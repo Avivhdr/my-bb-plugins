@@ -2,7 +2,7 @@
 
 Keeps your message pinned at the top of the chat while you read a long reply, the way Claude and Grok do. Click the bar to jump back to the full message.
 
-The bar shows the prompt of the turn at the top of the view. Scroll into an older turn and it switches to that turn's prompt. It hides while the prompt itself is on screen.
+The bar shows your newest message above the view, so at the bottom of a chat it's your last message. Scroll up past that message and the bar switches to the one before it. It hides while any of your messages is on screen.
 
 ## How it works
 

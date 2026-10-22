@@ -3,6 +3,7 @@ import type { Prompt, Prompts } from "./server";
 export interface PromptIndex {
   positions: ReadonlyMap<string, number>;
   prompts: readonly Prompt[];
+  promptRows: ReadonlySet<string>;
   /** Turn id -> position in `prompts`. */
   turns: ReadonlyMap<string, number>;
 }
@@ -26,7 +27,12 @@ export function indexPrompts({ rowIds, prompts }: Prompts): PromptIndex {
   prompts.forEach((prompt, ordinal) => {
     for (const turnId of prompt.turnIds) turns.set(turnId, ordinal);
   });
-  return { positions: new Map(rowIds.map((id, position) => [id, position])), prompts, turns };
+  return {
+    positions: new Map(rowIds.map((id, position) => [id, position])),
+    prompts,
+    promptRows: new Set(prompts.map((prompt) => prompt.rowId)),
+    turns,
+  };
 }
 
 /** "thr_abc:user-seed:12" -> "thr_abc". */
@@ -78,14 +84,22 @@ function resolve(index: PromptIndex, rows: readonly RowBox[], at: number): numbe
   return undefined;
 }
 
+/** Whether a row is one of the user's messages. Rows the index doesn't know are judged by id. */
+function isPrompt(index: PromptIndex | null, rowId: string): boolean {
+  if (index?.positions.has(rowId)) return index.promptRows.has(rowId);
+  return isPromptRowId(rowId);
+}
+
 /**
- * What to pin above a chat whose visible area starts at `edge`. `rows` are the
- * rendered rows sorted by `top`. `stale` asks the caller to refetch the index.
+ * What to pin above a chat whose visible area runs from `edge` to `bottom`.
+ * `rows` are the rendered rows sorted by `top`. `stale` asks the caller to
+ * refetch the index.
  */
 export function pinFor(
   index: PromptIndex | null,
   rows: readonly RowBox[],
   edge: number,
+  bottom: number,
   textOf: (rowId: string) => string | null,
 ): { pin: Pin | null; stale: boolean } {
   const at = rows.findIndex((row) => row.bottom > edge);
@@ -104,8 +118,8 @@ export function pinFor(
     }
   }
 
-  const pinnedId = pin?.rowId;
-  const onScreen = rows.find((row) => row.id === pinnedId);
-  if (onScreen && onScreen.bottom > edge) pin = null;
+  // With any prompt in view the bar could only point at an older one, which
+  // hides the newest. The bar shows again once every prompt is off screen.
+  if (rows.some((row) => row.bottom > edge && row.top < bottom && isPrompt(index, row.id))) pin = null;
   return { pin, stale: ordinal === undefined };
 }

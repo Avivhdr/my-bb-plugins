@@ -2,9 +2,9 @@ Keeps your last message pinned at the top of the chat while you read a long repl
 
 ## What you get
 
-- A bar at the top of each thread showing the prompt of the turn you're reading.
+- A bar at the top of each thread showing your newest message above the view.
 - Click it to jump back to the full message.
-- It hides while that message is on screen and follows you into older turns.
+- It hides while any of your messages is on screen. Scroll up past a message and the bar switches to the one before it.
 
 ## How it works
 
