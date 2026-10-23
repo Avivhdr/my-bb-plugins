@@ -25,6 +25,7 @@ The root `package.json`, `bun.lock`, `.bun-version`, `.oxlintrc.json` and `.oxfm
 - `bb-plugin-pr-thread-list`: keep the server SDK out of the frontend bundle, so the plugin builds when bb installs it. Upstream PR: https://github.com/koenvg/bb-plugins/pull/339 (not merged).
 - `bb-plugin-pr-thread-list`: the row menu's Rename runs bb's own rename action (`bb--core/rename`), which opens bb's rename dialog. Upstream used `window.prompt`, which throws in the desktop app.
 - `bb-plugin-pr-thread-list`: thread rows are one line. A Home icon (main or master) or a GitBranch icon (any other branch) sits before the name in place of the branch line. The second line appears only for a PR badge, a plugin row status, or activity cues.
+- `bb-plugin-pr-thread-list`: pinned rows have a red background, a metallic red edge that circles the row (the same effect as github-insight's Start review button) and a sheen that sweeps across it. See `pinned-row.css`.
 
 Re-apply these after a sync if upstream still lacks them.
 

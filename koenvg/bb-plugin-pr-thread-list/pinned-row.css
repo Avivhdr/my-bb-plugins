@@ -1,0 +1,104 @@
+@property --pinned-row-orbit {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/* A pinned row: red tint, a metallic red edge that orbits the row (the github-insight
+   Start review edge), and a light sheen that sweeps across now and then. */
+.pinned-row {
+  --pinned-row-tone: var(--destructive);
+  --pinned-row-tint: 16%;
+  --pinned-row-edge: color-mix(in oklab, var(--pinned-row-tone) 55%, var(--border));
+  --pinned-row-metal: color-mix(in oklab, var(--pinned-row-tone) 75%, var(--foreground));
+  --pinned-row-light: color-mix(in oklab, var(--pinned-row-tone) 20%, var(--background));
+  position: relative;
+  isolation: isolate;
+  height: calc(100% - 4px);
+  margin-top: 2px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--pinned-row-tone) calc(var(--pinned-row-tint) + 8%), var(--sidebar)),
+    color-mix(in oklab, var(--pinned-row-tone) var(--pinned-row-tint), var(--sidebar)) 60%
+  );
+  box-shadow: 0 1px 8px color-mix(in oklab, var(--pinned-row-tone) 28%, transparent);
+}
+
+.group\/row:hover .pinned-row {
+  --pinned-row-tint: 22%;
+}
+
+.pinned-row[data-selected] {
+  --pinned-row-tint: 30%;
+}
+
+.pinned-row::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--pinned-row-orbit),
+    var(--pinned-row-edge) 0deg,
+    var(--pinned-row-metal) 55deg,
+    var(--pinned-row-light) 117deg,
+    var(--pinned-row-metal) 138deg,
+    var(--pinned-row-edge) 185deg,
+    var(--pinned-row-light) 285deg,
+    var(--pinned-row-metal) 305deg,
+    var(--pinned-row-edge) 350deg
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: pinned-row-orbit 3.8s linear infinite;
+}
+
+.pinned-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  background: linear-gradient(
+      105deg,
+      transparent 40%,
+      color-mix(in oklab, var(--pinned-row-light) 70%, transparent) 50%,
+      transparent 60%
+    )
+    no-repeat;
+  background-size: 250% 100%;
+  animation: pinned-row-sheen 5s ease-in-out infinite;
+}
+
+@keyframes pinned-row-orbit {
+  to {
+    --pinned-row-orbit: 360deg;
+  }
+}
+
+@keyframes pinned-row-sheen {
+  0% {
+    background-position: 100% 0;
+  }
+  40%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pinned-row::before {
+    animation: none;
+    --pinned-row-orbit: 115deg;
+  }
+
+  .pinned-row::after {
+    animation: none;
+    background: none;
+  }
+}

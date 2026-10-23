@@ -75,6 +75,7 @@ import {
   workItems,
 } from "./row-cues";
 import { RunningGlyph } from "./running-glyph";
+import "./pinned-row.css";
 
 const OVERSCAN = 5;
 
@@ -262,6 +263,7 @@ function ThreadRow({
     thread.indicator !== "working-draft";
   const selected = thread.id === activeThreadId;
   const quiet = isSettled(thread) && !selected;
+  const isPinned = thread.isPinned && !item.context;
   return (
     <div
       className={`group/row relative flex min-w-0 items-start ${item.context ? "opacity-60" : ""}`}
@@ -271,7 +273,8 @@ function ThreadRow({
       }}
     >
       <div
-        className={`grid h-full min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)_auto] ${detailed ? "grid-rows-[1.25rem_1.25rem]" : "grid-rows-[1.25rem]"} content-center items-center gap-x-2 rounded-lg px-2 ${selected ? "bg-sidebar-accent" : "group-hover/row:bg-sidebar-accent/60"}`}
+        className={`grid h-full min-w-0 flex-1 grid-cols-[1rem_minmax(0,1fr)_auto] ${detailed ? "grid-rows-[1.25rem_1.25rem]" : "grid-rows-[1.25rem]"} content-center items-center gap-x-2 rounded-lg px-2 ${isPinned ? "pinned-row" : selected ? "bg-sidebar-accent" : "group-hover/row:bg-sidebar-accent/60"}`}
+        data-selected={selected || undefined}
       >
         {item.hasChildren ? (
           <span className="relative col-start-1 row-start-1 flex size-4">

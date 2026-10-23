@@ -100,7 +100,7 @@ These choices, and the selected tab, are saved on this client under a versioned 
 
 In **All**, **Needs you** sits above all other groups. It holds every tree with one or more threads that wait for an approval or an answer, have an unread error, or have a queued message that failed to send. The whole tree shows there, with its nesting.
 
-Each row starts with the agent's logo. A red dot on the logo means the thread needs you. A blue dot means it is unread. The top right shows what the thread does now (**Needs you**, **Failed**, **Not sent**, **Working**, **Planning**, **Draft**, and similar), or its age when it does nothing. Live states use a nine-cell spiral lattice in the original status spinner's position and size. Reduced-motion users see a static lattice.
+Each row starts with the agent's logo. A red dot on the logo means the thread needs you. A blue dot means it is unread. The top right shows what the thread does now (**Needs you**, **Failed**, **Not sent**, **Working**, **Planning**, **Draft**, and similar), or its age when it does nothing. Live states use a nine-cell spiral lattice in the original status spinner's position and size. Reduced-motion users see a static lattice. A pinned row has a red background, a metallic red edge that circles the row, and a light sheen that sweeps across it every few seconds. Reduced-motion users see the red background and a still edge.
 
 ## PR badges
 
