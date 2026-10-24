@@ -1,7 +1,30 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import { parsePullRequestUrl, type PullRequestRef } from "./core/pr-ref";
 import { isRateLimitMessage, RATE_LIMITED_TEXT } from "./github/gh-failure";
 import type { RateLimitPause } from "./github/rate-limit-pause";
+
+const PR_STATUS_PLUGIN_ID = "bb--github-pr-status";
+
+const linkedPullRequestsSchema = z.record(
+  z.string(),
+  z.discriminatedUnion("outcome", [
+    z.object({
+      outcome: z.literal("available"),
+      pullRequest: z.object({
+        url: z.string(),
+        state: z.enum(["open", "draft", "closed", "merged"]),
+      }),
+    }),
+    z.object({ outcome: z.literal("absent") }),
+    z.object({
+      outcome: z.literal("unavailable"),
+      message: z.string(),
+    }),
+  ]),
+);
+
+type LinkedPullRequestRow = z.infer<typeof linkedPullRequestsSchema>[string];
 
 export interface PrTarget {
   ref: PullRequestRef;
@@ -41,7 +64,7 @@ interface StoredLookup {
 }
 
 export interface PrLookupDeps {
-  sdk: Pick<BbPluginApi["sdk"], "threads" | "environments">;
+  sdk: Pick<BbPluginApi["sdk"], "threads" | "environments" | "plugins">;
   pause: RateLimitPause;
   readRateLimitReset(hostId: string): Promise<number | null>;
 }
@@ -61,13 +84,28 @@ export function createPrLookup({ sdk, pause, readRateLimitReset }: PrLookupDeps)
   }
 
   async function lookUp(environmentId: string): Promise<PrResolution> {
-    let linked: Awaited<ReturnType<typeof sdk.environments.pullRequest>>;
+    let linked: LinkedPullRequestRow;
     let environment: Awaited<ReturnType<typeof sdk.environments.get>>;
     try {
-      [linked, environment] = await Promise.all([
-        sdk.environments.pullRequest({ environmentId }),
+      const [rows, got] = await Promise.all([
+        sdk.plugins.callRpc({
+          pluginId: PR_STATUS_PLUGIN_ID,
+          method: "pullRequests",
+          input: { keys: [environmentId] },
+          outputSchema: linkedPullRequestsSchema,
+        }),
         sdk.environments.get({ environmentId }),
       ]);
+      environment = got;
+      const row = rows[environmentId];
+      if (row === undefined) {
+        stored.delete(environmentId);
+        return {
+          kind: "error",
+          message: "GitHub PR Status returned no row for this environment",
+        };
+      }
+      linked = row;
     } catch (error) {
       stored.delete(environmentId);
       return { kind: "error", message: error instanceof Error ? error.message : String(error) };

@@ -113,10 +113,20 @@ export async function setup(options: {
         send: async () => ({ ok: true as const, delivery: "sent" as const }),
       },
       environments: {
-        pullRequest: async ({ environmentId }) =>
-          options.pullRequests?.[environmentId] ?? { outcome: "absent" as const },
         get: async ({ environmentId }) =>
           ({ hostId: "host-1", ...options.environments?.[environmentId] }) as Environment,
+      },
+      plugins: {
+        callRpc: async ({ method, input }) => {
+          if (method !== "pullRequests") throw new Error(`unexpected rpc method ${method}`);
+          const keys = (input as { keys?: string[] } | undefined)?.keys ?? [];
+          return Object.fromEntries(
+            keys.map((environmentId) => [
+              environmentId,
+              options.pullRequests?.[environmentId] ?? { outcome: "absent" as const },
+            ]),
+          );
+        },
       },
       projects: {
         list: async () => (options.projects ?? []) as ProjectListItem[],
