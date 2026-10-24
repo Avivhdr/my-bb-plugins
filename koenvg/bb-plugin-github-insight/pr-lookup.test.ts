@@ -15,7 +15,14 @@ function setup(initial: PullRequestResult = linkedPr(7)) {
   const lookup = createPrLookup({
     sdk: {
       threads: { get: async () => ({ environmentId: "env_1" }) },
-      environments: { pullRequest, get },
+      environments: { get },
+      plugins: {
+        callRpc: async ({ input }: { input?: { keys?: string[] } }) => {
+          const environmentId = input?.keys?.[0];
+          if (environmentId === undefined) throw new Error("pullRequests needs one environment id");
+          return { [environmentId]: await pullRequest({ environmentId }) };
+        },
+      },
     } as unknown as Parameters<typeof createPrLookup>[0]["sdk"],
     pause,
     readRateLimitReset,

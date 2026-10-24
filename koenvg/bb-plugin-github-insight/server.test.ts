@@ -705,8 +705,8 @@ describe("pr-poller", () => {
     run.controller.abort();
   });
 
-  it.each(["pullRequest", "get"] as const)(
-    "refreshes healthy PRs during rejected environments.%s reads and recovers before pruning",
+  it.each(["plugins.callRpc", "environments.get"] as const)(
+    "refreshes healthy PRs during rejected %s reads and recovers before pruning",
     async (method) => {
       let state: "OPEN" | "MERGED" = "OPEN";
       let unavailable = true;
@@ -749,17 +749,18 @@ describe("pr-poller", () => {
         set: { prSummary: { pr: { number: 25338, state: "open" }, error: null } },
       });
       await harness.kv.set("insight:orphan/repo#1", unresolvedReading);
-      harness.sdk.stub(
-        `environments.${method}`,
-        async ({ environmentId }: { environmentId: string }) => {
-          if (environmentId === "env_2" && unavailable) {
-            throw new Error("HTTP 409: Environment unavailable");
-          }
-          return method === "pullRequest"
-            ? pullRequests[environmentId as keyof typeof pullRequests]
-            : { hostId: "host-1" };
-        },
-      );
+      harness.sdk.stub(method, async (args: { environmentId?: string; input?: { keys?: string[] } }) => {
+        const environmentId = args.environmentId ?? args.input?.keys?.[0] ?? "";
+        if (environmentId === "env_2" && unavailable) {
+          throw new Error("HTTP 409: Environment unavailable");
+        }
+        if (method === "plugins.callRpc") {
+          return {
+            [environmentId]: pullRequests[environmentId as keyof typeof pullRequests],
+          };
+        }
+        return { hostId: "host-1" };
+      });
       state = "MERGED";
       vi.advanceTimersByTime(60_000);
       const updatesBefore = metadataUpdates(harness).length;
@@ -1324,7 +1325,7 @@ describe("refresh on idle", () => {
     await goIdle(harness, "thr_1");
     await advance(60_000);
 
-    expect(harness.sdk.callsTo("environments.pullRequest")).toHaveLength(2);
+    expect(harness.sdk.callsTo("plugins.callRpc")).toHaveLength(2);
     expect(harness.experimental_hostRpcCalls).toHaveLength(0);
   });
 
@@ -1390,7 +1391,7 @@ describe("refresh on idle", () => {
     await harness.dispose();
     await advance(10_000);
 
-    expect(harness.sdk.callsTo("environments.pullRequest")).toHaveLength(1);
+    expect(harness.sdk.callsTo("plugins.callRpc")).toHaveLength(1);
   });
 });
 
