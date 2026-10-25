@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { BoardCard } from "../core/board";
-import { buildIssueThreadPrompt, issueUrl } from "../core/issueThread";
+import { buildIssueThreadPrompt, issueThreadComposerText, issueUrl } from "../core/issueThread";
 import { isFilterResult } from "../core/search";
 import { isSearchFocusKey, isTypingTarget } from "../core/searchHotkey";
 import type { LabelUsage } from "../core/types";
@@ -148,7 +148,6 @@ export function IssuesView({
     [host, repoSlug],
   );
 
-  const { startThread } = issues;
   const actions: IssueActions = useMemo(
     () => ({
       repo: repoSlug,
@@ -158,9 +157,9 @@ export function IssuesView({
       onSetValue: (issueNumber, value) => void issues.setValue(issueNumber, value),
       onOpenThread: host.openThread,
       onStartThread: (card: BoardCard) => {
-        void startThread(card).then((threadId) => {
-          if (threadId) host.openThread(threadId);
-        });
+        if (projectId && repoSlug) {
+          host.draftThread(projectId, issueThreadComposerText(repoSlug, card.issueNumber));
+        }
       },
       onDraftThread: (card: BoardCard) => {
         if (projectId && repoSlug) {
@@ -168,7 +167,7 @@ export function IssuesView({
         }
       },
     }),
-    [repoSlug, issues.busy, issues.setValue, host, copyLink, startThread, projectId],
+    [repoSlug, issues.busy, issues.setValue, host, copyLink, projectId],
   );
 
   function openCreate(labels: string[]) {

@@ -34,11 +34,10 @@ GitHub repository from the project's git remote.
   close it. ←/→ page through the column. Leaving with unsaved text asks first.
 - **AI-drafted issues.** **Create** turns a rough note into a structured issue
   through Anthropic or Groq. Skip AI uses the note as the title.
-- **A thread per issue.** **Start** on a card, or **Start thread** in its menu,
-  spawns a bb thread on the issue in the project's default environment and links
-  it to the card. **Draft in new
-  thread…** opens the composer with the same prompt, for picking a provider or
-  environment first.
+- **A thread per issue.** **Start** on a card, or **Start thread** in its menu
+  or drawer, opens the new thread screen for that project. The input contains
+  the GitHub issue link, and you write the instructions. **Draft in new
+  thread…** opens the same screen with a short "implement this issue" prompt.
 - **`bb issues` for agents.** `bb issues list` and `bb issues show <n>` give
   agents read-only access to the board. The bundled skill tells them how.
 

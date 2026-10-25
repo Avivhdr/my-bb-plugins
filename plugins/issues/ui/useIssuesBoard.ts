@@ -252,27 +252,6 @@ export function useIssuesBoard(rpc: IssuesRpc, projectId: string | null) {
     [rpc],
   );
 
-  /** Start a thread on the issue. Resolves with the thread id, or null on failure. */
-  const startThread = useCallback(
-    async (card: BoardCard): Promise<string | null> => {
-      const t = target();
-      if (!t) return null;
-      let threadId: string | null = null;
-      await withBusy(async () => {
-        const result = await rpc.call("issues_start_thread", {
-          projectId: t.projectId,
-          issueNumber: card.issueNumber,
-          title: card.title,
-        });
-        threadId = result.threadId;
-        // Reload so the card shows its new thread chip and the thread filter sees it.
-        if (isCurrent(t.generation)) await loadBoard();
-      });
-      return threadId;
-    },
-    [rpc, withBusy, loadBoard],
-  );
-
   const recolorLabel = useCallback(
     async (name: string, rawColor: string): Promise<void> => {
       const { projectId: pid, generation } = activation.current;
@@ -359,7 +338,6 @@ export function useIssuesBoard(rpc: IssuesRpc, projectId: string | null) {
     closeIssue,
     createIssue,
     refineTicketDraft,
-    startThread,
     recolorLabel,
     loadColumnConfig,
     saveColumns,

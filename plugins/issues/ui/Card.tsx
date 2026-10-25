@@ -396,8 +396,8 @@ export function Card({
               </button>
               <button
                 type="button"
-                title="Start a thread on this issue"
-                aria-label="Start a thread on this issue"
+                title="Open a new thread for this issue"
+                aria-label="Open a new thread for this issue"
                 disabled={actions.busy}
                 className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-state-hover hover:text-foreground disabled:opacity-50"
                 onClick={(event) => {

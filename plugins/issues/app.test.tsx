@@ -125,27 +125,21 @@ describe("Issues page", () => {
     expect(slot.getByText("Crash on save")).toBeTruthy();
   });
 
-  it("starts a thread from an issue and opens it", async () => {
-    const slot = await renderPage({
-      rpc: { issues_start_thread: () => ({ threadId: "thr_9" }) },
-    });
+  it("opens the new thread screen from an issue with the issue link", async () => {
+    const slot = await renderPage();
     const bug = await slot.findByRole("region", { name: "bug" });
 
     fireEvent.click(within(bug).getByText("Crash on save"));
     const dialog = await slot.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: /Start thread/ }));
 
-    await waitFor(() =>
-      expect(slot.inspection.navigateCalls).toContainEqual(
-        expect.objectContaining({ method: "toThread", threadId: "thr_9" }),
-      ),
-    );
-    expect(slot.inspection.rpcCalls).toContainEqual(
-      expect.objectContaining({
-        method: "issues_start_thread",
-        input: { projectId: "proj_1", issueNumber: 1, title: "Crash on save" },
-      }),
-    );
+    const prompt = "https://github.com/acme/repo/issues/1\n";
+    expect(slot.inspection.composer.text).toBe(prompt);
+    expect(slot.inspection.navigateCalls).toContainEqual({
+      method: "toCompose",
+      options: { projectId: "proj_1", initialPrompt: prompt, focusPrompt: true },
+    });
+    expect(slot.inspection.rpcCalls.some((call) => call.method === "issues_start_thread")).toBe(false);
   });
 
   it("shows a chip for the thread linked to an issue", async () => {
@@ -338,18 +332,18 @@ describe("Issues page", () => {
     );
   });
 
-  it("starts a thread from the card's Start button", async () => {
-    const slot = await renderPage({
-      rpc: { issues_start_thread: () => ({ threadId: "thr_7" }) },
-    });
+  it("opens the new thread screen from the card's Start button", async () => {
+    const slot = await renderPage();
     const bug = await slot.findByRole("region", { name: "bug" });
+    await slot.behavior.setComposerText("Write this first");
 
-    fireEvent.click(within(bug).getByRole("button", { name: "Start a thread on this issue" }));
+    fireEvent.click(within(bug).getByRole("button", { name: "Open a new thread for this issue" }));
 
-    await waitFor(() =>
-      expect(slot.inspection.navigateCalls).toContainEqual(
-        expect.objectContaining({ method: "toThread", threadId: "thr_7" }),
-      ),
-    );
+    const prompt = "https://github.com/acme/repo/issues/1\n";
+    expect(slot.inspection.composer.text).toBe(prompt);
+    expect(slot.inspection.navigateCalls).toContainEqual({
+      method: "toCompose",
+      options: { projectId: "proj_1", initialPrompt: prompt, focusPrompt: true },
+    });
   });
 });

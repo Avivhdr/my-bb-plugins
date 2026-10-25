@@ -259,9 +259,10 @@ export default async function plugin(bb: BbPluginApi) {
       ready: hasUsableProvider(aiSettingsFrom(await settings.get())),
     }),
 
-    // Starts the thread right away so the board can link it to the issue. The
-    // frontend's "Draft in new thread" is the path for choosing a provider or
-    // environment first.
+    // Starts a thread immediately and links it to the issue. The board's Start
+    // button does not call this: it opens the new thread screen so the person
+    // can write their own instructions. "Draft in new thread" does the same
+    // with a short implement-this-issue prompt.
     issues_start_thread: async ({ projectId, issueNumber, title }) => {
       const repo = await repoFor(projectId);
       const slug = `${repo.owner}/${repo.name}`;

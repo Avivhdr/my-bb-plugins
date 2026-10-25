@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildIssueThreadPrompt, issueThreadTitle, issueUrl } from './issueThread'
+import { buildIssueThreadPrompt, issueThreadComposerText, issueThreadTitle, issueUrl } from './issueThread'
 
 describe('issue threads', () => {
   it('links to the issue on GitHub', () => {
     expect(issueUrl('acme/app', 12)).toBe('https://github.com/acme/app/issues/12')
+  })
+
+  it('puts only the issue link in the new-thread input', () => {
+    expect(issueThreadComposerText('acme/app', 12)).toBe('https://github.com/acme/app/issues/12\n')
   })
 
   it('references the issue rather than copying its body', () => {

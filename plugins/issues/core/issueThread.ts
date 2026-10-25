@@ -1,8 +1,16 @@
-// What a thread started from an issue is told, shared by the server's "Start thread"
-// and the frontend's "Draft in new thread" so both hand the agent the same prompt.
+// What a thread started from an issue is told. The server's start-thread call and
+// the frontend's "Draft in new thread" share this prompt.
 
 export function issueUrl(repo: string, issueNumber: number): string {
   return `https://github.com/${repo}/issues/${issueNumber}`
+}
+
+/**
+ * The new-thread input for one issue. The GitHub link sits on its own line.
+ * The person writes their own instructions under it.
+ */
+export function issueThreadComposerText(repo: string, issueNumber: number): string {
+  return `${issueUrl(repo, issueNumber)}\n`
 }
 
 /**

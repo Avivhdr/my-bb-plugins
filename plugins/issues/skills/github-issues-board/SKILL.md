@@ -25,11 +25,11 @@ bb issues show 42 --json
 `list` prints at most 200 issues and says how many it left out. Narrow with
 `--label` when that happens.
 
-## When a thread was started from the board
+## When a thread was opened from the board
 
-A thread started with "Start thread" on the board opens with a prompt naming
-the issue and its URL. Run `bb issues show <number>` to read the body as it
-stands now rather than relying on the prompt.
+**Start** on a card opens the new thread screen for that project. The input
+contains the GitHub issue URL, and the person writes the instructions. Run
+`bb issues show <number>` to read the body as it stands now.
 
 ## Failures
 

@@ -10,6 +10,7 @@ import {
   experimental_usePluginId,
   useBbContext,
   useBbNavigate,
+  useComposer,
   useRpc,
   useSdk,
 } from "@get-bb/plugin-sdk/app";
@@ -61,6 +62,7 @@ function readRemembered(key: string): string | null {
 function IssuesPage({ subPath }: { subPath: string }) {
   const rpc = useRpc<RpcContract>();
   const navigate = useBbNavigate();
+  const composer = useComposer();
   const context = useBbContext();
   const pluginId = experimental_usePluginId();
   const projects = useProjects();
@@ -97,10 +99,15 @@ function IssuesPage({ subPath }: { subPath: string }) {
         if (!navigate.openUrl(url)) window.open(url, "_blank", "noopener,noreferrer");
       },
       openThread: (threadId) => navigate.toThread(threadId),
-      draftThread: (pid, prompt) => navigate.toCompose({ projectId: pid, initialPrompt: prompt, focusPrompt: true }),
+      // Replace the draft first. toCompose only fills an empty input, and a
+      // second issue must replace the link from the first.
+      draftThread: (pid, prompt) => {
+        composer.replace({ text: prompt, mentions: [], attachments: [] });
+        navigate.toCompose({ projectId: pid, initialPrompt: prompt, focusPrompt: true });
+      },
       copyText: (text) => experimental_copyToClipboard({ text }),
     }),
-    [navigate],
+    [composer, navigate],
   );
 
   const picker =
