@@ -58,6 +58,7 @@ import {
   buildForest,
   visibleItems,
   naturalTreePlacements,
+  retainedTreePlacement,
   type TreePlacement,
   type Lifecycle,
   type ListItem,
@@ -627,17 +628,20 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   const priorPlacement = props.activeThreadId
     ? previous.placements.get(props.activeThreadId)
     : undefined;
-  const heldTree = selected
-    ? previous.heldTree?.rootId === selected.rootId
-      ? previous.heldTree
-      : priorPlacement?.rootId === selected.rootId
-        ? priorPlacement
-        : selected
-    : undefined;
+  const { heldTree, followInFlight } = retainedTreePlacement(
+    selected,
+    previous.heldTree,
+    priorPlacement,
+  );
   // Derive before rendering; only committed renders may supply transition history.
   useLayoutEffect(() => {
     committed.current = { placements, heldTree };
-  }, [placements, heldTree]);
+    if (followInFlight && prefs.tab === "attention") {
+      setPrefs((current) =>
+        current.tab === "attention" ? { ...current, tab: "inflight" } : current,
+      );
+    }
+  }, [placements, heldTree, followInFlight, prefs.tab]);
   const items = useMemo(
     () => visibleItems(threads, projects, sections, prefs, pullRequests, snoozes.snoozed, heldTree),
     [threads, projects, sections, prefs, pullRequests, snoozes.snoozed, heldTree],

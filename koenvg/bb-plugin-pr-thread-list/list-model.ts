@@ -177,6 +177,26 @@ export interface TreePlacement {
   tab: AttentionTab;
 }
 
+/**
+ * A selected In flight tree stays there until selection leaves.
+ * A selected Needs attention tree follows In flight as soon as work starts.
+ */
+export function retainedTreePlacement(
+  selected: TreePlacement | undefined,
+  previousHold: TreePlacement | undefined,
+  priorPlacement: TreePlacement | undefined,
+): { heldTree: TreePlacement | undefined; followInFlight: boolean } {
+  if (!selected) return { heldTree: undefined, followInFlight: false };
+  const retained =
+    previousHold?.rootId === selected.rootId
+      ? previousHold
+      : priorPlacement?.rootId === selected.rootId
+        ? priorPlacement
+        : selected;
+  const followInFlight = retained.tab === "attention" && selected.tab === "inflight";
+  return { heldTree: followInFlight ? selected : retained, followInFlight };
+}
+
 function tabOfTree(
   { members }: Tree,
   forest: Forest,

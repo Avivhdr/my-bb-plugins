@@ -4,6 +4,7 @@ import { project, thread } from "./fixtures";
 import {
   visibleItems,
   naturalTreePlacements,
+  retainedTreePlacement,
   type TreePlacement,
   type ListOptions,
 } from "./list-model";
@@ -161,6 +162,44 @@ describe("tree-wide tab priority", () => {
     const read = rows({ top: { status: "active" } });
     expect(shape(read, "attention")).toEqual([]);
     expect(shape(read, "inflight")).toEqual(tree);
+  });
+});
+
+describe("retained tree placement", () => {
+  const attention: TreePlacement = { rootId: "top", tab: "attention" };
+  const inflight: TreePlacement = { rootId: "top", tab: "inflight" };
+  const other: TreePlacement = { rootId: "other", tab: "attention" };
+
+  it("follows In flight when the selected tree leaves Needs attention", () => {
+    expect(retainedTreePlacement(inflight, attention, attention)).toEqual({
+      heldTree: inflight,
+      followInFlight: true,
+    });
+    expect(retainedTreePlacement(inflight, undefined, attention)).toEqual({
+      heldTree: inflight,
+      followInFlight: true,
+    });
+  });
+
+  it("keeps an In flight selection when the tree starts to need attention", () => {
+    expect(retainedTreePlacement(attention, inflight, inflight)).toEqual({
+      heldTree: inflight,
+      followInFlight: false,
+    });
+  });
+
+  it("uses the current placement for a newly selected tree", () => {
+    expect(retainedTreePlacement(other, inflight, undefined)).toEqual({
+      heldTree: other,
+      followInFlight: false,
+    });
+  });
+
+  it("clears the hold when nothing is selected", () => {
+    expect(retainedTreePlacement(undefined, inflight, attention)).toEqual({
+      heldTree: undefined,
+      followInFlight: false,
+    });
   });
 });
 

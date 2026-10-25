@@ -160,10 +160,8 @@ function mount(
   });
 }
 
-const heldTabs = [
-  ["attention", "Needs attention", "In flight"],
-  ["inflight", "In flight", "Needs attention"],
-] as const;
+// A Needs attention selection follows In flight at once. Only In flight stays put.
+const heldTabs = [["inflight", "In flight", "Needs attention"]] as const;
 
 function family(tab: "attention" | "inflight", changed = false): PluginSidebarThread[] {
   return [
@@ -207,9 +205,7 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
         ).toBe("page");
         const child = slot.getByRole("link", { name: "Child" }).closest(".group\\/row")!;
         expect(child.querySelector(".bg-primary")).toBeNull();
-        expect(Boolean(slot.container.querySelector("[data-running-glyph]"))).toBe(
-          tab === "attention",
-        );
+        expect(slot.container.querySelector("[data-running-glyph]")).toBeNull();
         slot.lifecycle.unmount();
         mounted = undefined;
       }
@@ -363,6 +359,93 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
     showTab(slot, "All");
     expect(slot.getByRole("button", { name: "Collapse Snoozed" })).toBeTruthy();
     expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
+  });
+});
+
+describe("selected Needs attention tree starts work", () => {
+  const waiting = [
+    thread({ id: "parent", displayTitle: "Parent", hasPendingInteraction: true }),
+    thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
+  ];
+  const working = [
+    thread({ id: "parent", displayTitle: "Parent", status: "active" }),
+    thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
+  ];
+  const selectedTab = (slot: ReturnType<typeof mount>, name: string) =>
+    slot.getByRole("tab", { name }).getAttribute("aria-selected");
+
+  it("switches the open tab to In flight and leaves Needs attention", () => {
+    const slot = mount(waiting);
+    showTab(slot, "Needs attention");
+    slot.update({ activeThreadId: "parent" });
+    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    slot.update({ threads: working });
+    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(slot.getByRole("link", { name: "Parent" }).getAttribute("aria-current")).toBe("page");
+    expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
+    showTab(slot, "Needs attention");
+    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
+  });
+
+  it("follows when selection and the start of work arrive together", () => {
+    const slot = mount(waiting);
+    showTab(slot, "Needs attention");
+    slot.update({ threads: working, activeThreadId: "child" });
+    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(slot.getByRole("link", { name: "Child" }).getAttribute("aria-current")).toBe("page");
+    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+  });
+
+  it("keeps All selected and removes the tree from Needs attention", () => {
+    const slot = mount(waiting);
+    showTab(slot, "All");
+    slot.update({ activeThreadId: "parent", threads: working });
+    expect(selectedTab(slot, "All")).toBe("true");
+    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    showTab(slot, "Needs attention");
+    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
+    showTab(slot, "In flight");
+    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+  });
+
+  it("stays on Needs attention while the selected tree still needs you", () => {
+    const slot = mount(waiting);
+    showTab(slot, "Needs attention");
+    slot.update({ activeThreadId: "parent" });
+    slot.update({
+      threads: waiting.map((row) => (row.id === "parent" ? { ...row, status: "active" } : row)),
+    });
+    expect(selectedTab(slot, "Needs attention")).toBe("true");
+    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(slot.queryByRole("tab", { name: "In flight" })?.getAttribute("aria-selected")).toBe(
+      "false",
+    );
+  });
+
+  it("follows when a child of the selected tree starts work", () => {
+    const idle = [
+      thread({ id: "parent", displayTitle: "Parent" }),
+      thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
+    ];
+    const slot = mount(idle);
+    showTab(slot, "Needs attention");
+    slot.update({ activeThreadId: "parent" });
+    slot.update({
+      threads: idle.map((row) => (row.id === "child" ? { ...row, status: "active" } : row)),
+    });
+    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(slot.getByRole("link", { name: "Parent" }).getAttribute("aria-current")).toBe("page");
+    expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
+  });
+
+  it("does not leave Needs attention for a thread that is already in flight", () => {
+    const slot = mount(working);
+    showTab(slot, "In flight");
+    slot.update({ activeThreadId: "parent" });
+    showTab(slot, "Needs attention");
+    slot.update({ threads: working.map((row) => ({ ...row })) });
+    expect(selectedTab(slot, "Needs attention")).toBe("true");
+    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
   });
 });
 
