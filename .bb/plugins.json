@@ -9,6 +9,7 @@
     { "name": "pinned-prompt", "source": "./plugins/pinned-prompt" },
     { "name": "archive-button", "source": "./plugins/archive-button" },
     { "name": "thread-name", "source": "./plugins/thread-name" },
+    { "name": "context-usage", "source": "./plugins/context-usage" },
     { "name": "browser-annotate", "source": "./koenvg/bb-plugin-browser-annotate" },
     { "name": "changes", "source": "./koenvg/bb-plugin-changes" },
     { "name": "code-cleanup", "source": "./koenvg/bb-plugin-code-cleanup" },

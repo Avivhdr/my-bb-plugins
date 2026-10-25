@@ -1,0 +1,41 @@
+{
+  "name": "bb-plugin-context-usage",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.46",
+    "bbPluginSdk": ">=0.6.37"
+  },
+  "bb": {
+    "name": "Context Usage",
+    "description": "Shows how full each thread's context window is, in the thread header.",
+    "branding": {
+      "icon": "Brain"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.79",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@radix-ui/react-hover-card": "^1.1.19",
+    "@types/react-dom": "^19.0.0",
+    "hono": "^4.13.13",
+    "sonner": "^1.7.4",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.5"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build"
+  }
+}
