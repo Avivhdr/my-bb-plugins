@@ -789,18 +789,21 @@ describe("pr-poller", () => {
         set: { prSummary: { pr: { number: 25338, state: "open" }, error: null } },
       });
       await harness.kv.set("insight:orphan/repo#1", unresolvedReading);
-      harness.sdk.stub(method, async (args: { environmentId?: string; input?: { keys?: string[] } }) => {
-        const environmentId = args.environmentId ?? args.input?.keys?.[0] ?? "";
-        if (environmentId === "env_2" && unavailable) {
-          throw new Error("HTTP 409: Environment unavailable");
-        }
-        if (method === "plugins.callRpc") {
-          return {
-            [environmentId]: pullRequests[environmentId as keyof typeof pullRequests],
-          };
-        }
-        return { hostId: "host-1" };
-      });
+      harness.sdk.stub(
+        method,
+        async (args: { environmentId?: string; input?: { keys?: string[] } }) => {
+          const environmentId = args.environmentId ?? args.input?.keys?.[0] ?? "";
+          if (environmentId === "env_2" && unavailable) {
+            throw new Error("HTTP 409: Environment unavailable");
+          }
+          if (method === "plugins.callRpc") {
+            return {
+              [environmentId]: pullRequests[environmentId as keyof typeof pullRequests],
+            };
+          }
+          return { hostId: "host-1" };
+        },
+      );
       state = "MERGED";
       vi.advanceTimersByTime(60_000);
       const updatesBefore = metadataUpdates(harness).length;
