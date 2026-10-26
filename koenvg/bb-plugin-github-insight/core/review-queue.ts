@@ -5,7 +5,8 @@ import { othersPrComments, othersReviewTexts, postedAt } from "./new-comments";
 import type { PullRequestRef } from "./pr-ref";
 
 export const REVIEW_QUEUE_PAGE_SIZE = 50;
-export const TEAM_PR_WINDOW_MS = 7 * 24 * 3_600_000;
+/** How long a merged or closed PR with only a reviewed mark stays in the list. */
+export const CLOSED_PR_WINDOW_MS = 7 * 24 * 3_600_000;
 
 const GITHUB_REMOTE =
   /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+)\/([^/]+?)(?:\.git)?\/?$/i;
@@ -29,11 +30,12 @@ const prNodeSchema = z.object({
   isDraft: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  author: z.object({ login: z.string() }).nullable(),
+  author: z.object({ login: z.string(), avatarUrl: z.string().optional() }).nullable(),
   repository: z.object({ nameWithOwner: z.string() }),
   headRefName: z.string(),
   headRefOid: z.string(),
   reviewDecision: reviewDecisionSchema,
+  labels: z.object({ nodes: z.array(z.object({ name: z.string() })) }).optional(),
   commits: z.object({
     nodes: z.array(
       z.object({
@@ -79,10 +81,7 @@ type Search = z.infer<typeof searchSchema>;
 const batchResponsesSchema = z.array(z.object({ data: z.record(z.string(), z.unknown()) }));
 
 const reviewQueueDataSchema = z
-  .object({
-    viewer: z.object({ login: z.string() }),
-    reviewRequests: searchSchema,
-  })
+  .object({ viewer: z.object({ login: z.string() }) })
   .catchall(z.unknown());
 
 const trackedNodeSchema = z
@@ -120,6 +119,7 @@ export const queuePrSchema = z.object({
   number: z.number(),
   title: z.string(),
   author: z.string().nullable(),
+  authorAvatarUrl: z.string().nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
   draft: z.boolean(),
@@ -130,30 +130,35 @@ export const queuePrSchema = z.object({
   url: z.string(),
   state: prStateSchema,
   closedAt: z.string().nullable(),
+  labels: z.array(z.string()).default([]),
   activity: prActivitySchema.nullable().default(null),
 });
 export type QueuePr = z.infer<typeof queuePrSchema>;
 
-export const queueListSchema = z.object({
-  groups: z.array(z.object({ repo: z.string(), prs: z.array(queuePrSchema) })),
-  truncated: z.boolean(),
-});
-export type QueueList = z.infer<typeof queueListSchema>;
+export function layerAlias(index: number): string {
+  return `l${index}`;
+}
 
 export function trackedAlias(index: number): string {
   return `t${index}`;
 }
 
+/** The PRs one layer search found, in GitHub's order. */
+export interface FetchedLayer {
+  prs: QueuePr[];
+  truncated: boolean;
+}
+
 export interface FetchedQueue {
-  requests: QueueList;
+  layers: FetchedLayer[];
   tracked: QueuePr[];
   gone: PullRequestRef[];
 }
 
 export function parseReviewQueue(
   batchResponses: unknown,
+  layerCount: number,
   trackedRefs: readonly PullRequestRef[],
-  now: number,
 ): FetchedQueue {
   const batches = batchResponsesSchema.parse(batchResponses);
   const data = reviewQueueDataSchema.parse(
@@ -164,15 +169,13 @@ export function parseReviewQueue(
   const gone: PullRequestRef[] = [];
   trackedRefs.forEach((ref, index) => {
     const node = trackedNodeSchema.parse(data[trackedAlias(index)])?.pullRequest ?? null;
-    if (node === null || closedBefore(node, now - TEAM_PR_WINDOW_MS)) gone.push(ref);
+    if (node === null) gone.push(ref);
     else tracked.push({ ...toQueuePr(node), activity: activityOf(node, viewer) });
   });
-  return { requests: toQueueList(data.reviewRequests), tracked, gone };
-}
-
-function closedBefore(node: PrNode, at: number): boolean {
-  const closedAt = node.mergedAt ?? node.closedAt;
-  return node.state !== "OPEN" && (closedAt === null || Date.parse(closedAt) < at);
+  const layers = Array.from({ length: layerCount }, (_, index) =>
+    toFetchedLayer(searchSchema.parse(data[layerAlias(index)])),
+  );
+  return { layers, tracked, gone };
 }
 
 function latest(times: string[]): string | null {
@@ -213,6 +216,7 @@ function toQueuePr(node: PrNode): QueuePr {
     number: node.number,
     title: node.title,
     author: node.author?.login ?? null,
+    authorAvatarUrl: node.author?.avatarUrl ?? null,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     draft: node.isDraft,
@@ -223,20 +227,14 @@ function toQueuePr(node: PrNode): QueuePr {
     url: node.url,
     state: PR_STATE[node.state],
     closedAt: node.mergedAt ?? node.closedAt,
+    labels: node.labels?.nodes.map((label) => label.name) ?? [],
     activity: null,
   };
 }
 
-function toQueueList(search: Search): QueueList {
-  const byRepo = new Map<string, QueuePr[]>();
-  for (const pr of search.nodes.map(toQueuePr)) {
-    byRepo.set(pr.repo, [...(byRepo.get(pr.repo) ?? []), pr]);
-  }
-  const groups = [...byRepo]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([repo, prs]) => ({
-      repo,
-      prs: prs.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    }));
-  return { groups, truncated: search.issueCount > REVIEW_QUEUE_PAGE_SIZE };
+function toFetchedLayer(search: Search): FetchedLayer {
+  return {
+    prs: search.nodes.map(toQueuePr),
+    truncated: search.issueCount > REVIEW_QUEUE_PAGE_SIZE,
+  };
 }

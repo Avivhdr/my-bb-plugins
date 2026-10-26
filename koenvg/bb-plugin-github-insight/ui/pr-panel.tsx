@@ -1,11 +1,13 @@
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import type { PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { cn } from "@/lib/utils";
@@ -33,11 +35,33 @@ function initialSubTab(threadId: string): PrSubTab {
 }
 
 export function PrPanel({ threadId }: PluginThreadPanelProps) {
-  return <PrPanelContent key={threadId} threadId={threadId} />;
+  return <PrPanelContent key={threadId} threadId={threadId} focus={null} />;
 }
 
-function PrPanelContent({ threadId }: { threadId: string }) {
-  const [selected, setSelected] = useState(() => initialSubTab(threadId));
+/** A comment to show when the view opens: in the conversation, or an inline comment in Files. */
+export interface PrViewFocus {
+  kind: "conversation" | "inline";
+  commentId: string;
+}
+
+/**
+ * The PR tab's Overview and Files for any PR. `threadId` is a thread id or a PR subject id
+ * (core/pr-subject.ts).
+ */
+export function PrView({ threadId, focus }: { threadId: string; focus: PrViewFocus | null }) {
+  return (
+    <PrPanelContent
+      key={`${threadId} ${focus?.kind ?? ""} ${focus?.commentId ?? ""}`}
+      threadId={threadId}
+      focus={focus}
+    />
+  );
+}
+
+function PrPanelContent({ threadId, focus }: { threadId: string; focus: PrViewFocus | null }) {
+  const [selected, setSelected] = useState(() =>
+    focus === null ? initialSubTab(threadId) : focus.kind === "inline" ? "files" : "overview",
+  );
   const [filesShown, setFilesShown] = useState(selected === "files");
   const select = useCallback(
     (subTab: PrSubTab) => {
@@ -47,7 +71,9 @@ function PrPanelContent({ threadId }: { threadId: string }) {
     },
     [threadId],
   );
-  const [jump, setJump] = useState<FilesJump | null>(null);
+  const [jump, setJump] = useState<FilesJump | null>(() =>
+    focus?.kind === "inline" ? { commentIds: [focus.commentId] } : null,
+  );
   const showFiles = useCallback(
     (next: FilesJump) => {
       select("files");
@@ -62,6 +88,7 @@ function PrPanelContent({ threadId }: { threadId: string }) {
   useCommandIntent(threadId, "pr", (intent) => select(SUB_TAB_OF_INTENT[intent]));
   const [summary, setSummary] = useState<PrTabSummary | null>(null);
   const overviewScroll = useRef<HTMLDivElement>(null);
+  useScrollToComment(overviewScroll, focus?.kind === "conversation" ? focus.commentId : null);
   const idPrefix = useId();
   const ids = (subTab: PrSubTab) => ({
     tab: `${idPrefix}-${subTab}-tab`,
@@ -92,6 +119,40 @@ function PrPanelContent({ threadId }: { threadId: string }) {
       )}
     </div>
   );
+}
+
+const FOCUS_WAIT_MS = 15_000;
+const FOCUS_RING_MS = 1_500;
+
+/** Scrolls to a conversation comment once the timeline renders it, and rings it briefly. */
+function useScrollToComment(root: RefObject<HTMLElement | null>, commentId: string | null) {
+  useEffect(() => {
+    const container = root.current;
+    if (commentId === null || container === null) return;
+    let ringTimer: ReturnType<typeof setTimeout> | undefined;
+    const find = () =>
+      container.querySelector<HTMLElement>(`[data-timeline-comment-id="${CSS.escape(commentId)}"]`);
+    const show = (card: HTMLElement) => {
+      observer.disconnect();
+      clearTimeout(giveUp);
+      card.scrollIntoView({ block: "center" });
+      card.setAttribute("data-jumped", "");
+      ringTimer = setTimeout(() => card.removeAttribute("data-jumped"), FOCUS_RING_MS);
+    };
+    const observer = new MutationObserver(() => {
+      const card = find();
+      if (card !== null) show(card);
+    });
+    const giveUp = setTimeout(() => observer.disconnect(), FOCUS_WAIT_MS);
+    const card = find();
+    if (card !== null) show(card);
+    else observer.observe(container, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      clearTimeout(giveUp);
+      clearTimeout(ringTimer);
+    };
+  }, [root, commentId]);
 }
 
 interface SubTabIds {

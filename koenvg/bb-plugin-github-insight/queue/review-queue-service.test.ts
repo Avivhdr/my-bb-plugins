@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NewThreadRequest } from "@get-bb/plugin-sdk";
-import type { LinkedQueuePr, LoadedReviewQueue, ReviewQueueView } from "../contract";
+import type { LinkedQueuePr, LoadedReviewQueue, QueueSection, ReviewQueueView } from "../contract";
 import type { PullRequestRef } from "../core/pr-ref";
 import type { FetchedQueue, QueuePr } from "../core/review-queue";
-import type { TeamScanRequest } from "../core/team-prs";
+import { viewPrs } from "../core/review-queue-view";
 import type { PrResolution } from "../pr-lookup";
 import {
   createReviewQueueService,
@@ -20,6 +20,7 @@ function queuePr(repo: string, number: number, overrides: Partial<QueuePr> = {})
     number,
     title: `PR ${number}`,
     author: "octocat",
+    authorAvatarUrl: null,
     createdAt: "2026-09-30T10:00:00Z",
     updatedAt: "2026-10-01T10:00:00Z",
     draft: false,
@@ -30,18 +31,24 @@ function queuePr(repo: string, number: number, overrides: Partial<QueuePr> = {})
     url: `https://github.com/${repo}/pull/${number}`,
     state: "open",
     closedAt: null,
+    labels: [],
     activity: null,
     ...overrides,
   };
 }
 
+/** `prs` come from the Direct search; `team` from the Team search. */
 function queueOf(
   prs: QueuePr[],
   tracked: QueuePr[] = [],
   gone: PullRequestRef[] = [],
+  team: QueuePr[] = [],
 ): FetchedQueue {
   return {
-    requests: { groups: prs.map((pr) => ({ repo: pr.repo, prs: [pr] })), truncated: false },
+    layers: [
+      { prs, truncated: false },
+      { prs: team, truncated: false },
+    ],
     tracked,
     gone,
   };
@@ -124,17 +131,20 @@ function mark(repo: string, number: number, headOid: string, markedAt = 1) {
 function serviceWith(overrides: Partial<ReviewQueueServiceDeps> = {}) {
   const hostIds: string[] = [];
   const trackedCalls: PullRequestRef[][] = [];
+  const queryCalls: string[][] = [];
   const archived: string[] = [];
   const published: LoadedReviewQueue[] = [];
   const kv = fakeKv();
   const service = createReviewQueueService({
     primaryHostId: async () => "host-1",
-    fetchReviewQueue: async (hostId, tracked) => {
+    fetchReviewQueue: async (hostId, layerQueries, tracked) => {
       hostIds.push(hostId);
+      queryCalls.push(layerQueries);
       trackedCalls.push(tracked);
       return queueOf([queuePr("Acme/API", 15)]);
     },
-    scanTeamPrs: async () => ({ refs: [], scannedThrough: {} }),
+    fetchTeamMembers: async () => [],
+    listViewerTeams: async () => [],
     listProjects: async () => [],
     listThreads: async () => [],
     listReviewThreads: async () => [],
@@ -150,7 +160,7 @@ function serviceWith(overrides: Partial<ReviewQueueServiceDeps> = {}) {
     now: () => 1_000,
     ...overrides,
   });
-  return { service, hostIds, trackedCalls, archived, published, kv };
+  return { service, hostIds, trackedCalls, queryCalls, archived, published, kv };
 }
 
 function viewOf(result: LoadedReviewQueue): ReviewQueueView {
@@ -159,19 +169,34 @@ function viewOf(result: LoadedReviewQueue): ReviewQueueView {
 }
 
 function allPrs(result: LoadedReviewQueue): LinkedQueuePr[] {
-  const view = viewOf(result);
-  return [...view.needsReview, ...view.reviewed].flatMap((group) => group.prs);
+  return viewPrs(viewOf(result));
 }
 
 function firstReviewRequest(result: LoadedReviewQueue): LinkedQueuePr {
   return allPrs(result)[0]!;
 }
 
+function numbers(section: QueueSection) {
+  return section.map((group) => [group.repo, group.prs.map((pr) => pr.number)]);
+}
+
+/** The PRs that wait in any layer, and the reviewed ones. */
 function sections(result: LoadedReviewQueue) {
   const view = viewOf(result);
-  const numbers = (section: ReviewQueueView["needsReview"]) =>
-    section.map((group) => [group.repo, group.prs.map((pr) => pr.number)]);
-  return { needsReview: numbers(view.needsReview), reviewed: numbers(view.reviewed) };
+  return {
+    needsReview: view.layers.flatMap((layer) => numbers(layer.prs)),
+    reviewed: numbers(view.reviewed),
+  };
+}
+
+function allSections(result: LoadedReviewQueue) {
+  const view = viewOf(result);
+  return {
+    ...Object.fromEntries(view.layers.map((layer) => [layer.name, numbers(layer.prs)])),
+    reviewed: numbers(view.reviewed),
+    merged: numbers(view.merged),
+    ignored: numbers(view.ignored),
+  };
 }
 
 function deferred<T>() {
@@ -472,9 +497,9 @@ describe("PR list content", () => {
       fetchReviewQueue: async () => queueOf([queuePr("acme/api", 15)], [queuePr("acme/api", 15)]),
     });
 
-    expect(
-      allPrs(await service.refreshReviewQueue()).map((pr) => [pr.number, pr.requested]),
-    ).toEqual([[15, true]]);
+    expect(allPrs(await service.refreshReviewQueue()).map((pr) => [pr.number, pr.layer])).toEqual([
+      [15, "Direct"],
+    ]);
   });
 
   it("keeps a marked PR that is no longer requested", async () => {
@@ -498,7 +523,7 @@ describe("PR list content", () => {
 
     const pr = firstReviewRequest(await service.refreshReviewQueue());
 
-    expect(pr).toMatchObject({ number: 15, requested: false, thread: { id: "thr_review" } });
+    expect(pr).toMatchObject({ number: 15, layer: null, thread: { id: "thr_review" } });
   });
 
   it("leaves out a tracked PR without a mark or a review thread", async () => {
@@ -529,171 +554,6 @@ describe("PR list content", () => {
 
     expect(allPrs(result)).toEqual([]);
     expect([...kv.entries.keys()].filter((key) => key.startsWith("reviewed:"))).toEqual([]);
-  });
-});
-
-describe("team PRs", () => {
-  const NOW = Date.parse("2026-10-21T09:00:00Z");
-  const WEEK = 7 * 24 * 3_600_000;
-  const pr41 = { owner: "acme", repo: "api", number: 41 };
-
-  function teamStore(refs: PullRequestRef[], scannedThrough: Record<string, string> = {}) {
-    return ["team-prs", { v: 1, refs, scannedThrough }] as const;
-  }
-
-  function scanning(found: PullRequestRef[] | Error) {
-    const requests: TeamScanRequest[] = [];
-    return {
-      requests,
-      scanTeamPrs: async (_hostId: string, request: TeamScanRequest) => {
-        requests.push(request);
-        if (found instanceof Error) throw found;
-        return {
-          refs: found,
-          scannedThrough: Object.fromEntries(
-            request.repos.map(({ repo }) => [repo, request.startedAt]),
-          ),
-        };
-      },
-    };
-  }
-
-  it("lists a team PR after its review request is gone", async () => {
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      fetchReviewQueue: async () => queueOf([], [queuePr("acme/api", 41)]),
-    });
-    kv.entries.set(...teamStore([pr41]));
-
-    expect(sections(await service.refreshReviewQueue())).toEqual({
-      needsReview: [["acme/api", [41]]],
-      reviewed: [],
-    });
-  });
-
-  it("lists a merged team PR with its merged state", async () => {
-    const mergedAt = new Date(NOW - 3_600_000).toISOString();
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      fetchReviewQueue: async () =>
-        queueOf([], [queuePr("acme/api", 41, { state: "merged", closedAt: mergedAt })]),
-    });
-    kv.entries.set(...teamStore([pr41]));
-
-    expect(firstReviewRequest(await service.refreshReviewQueue())).toMatchObject({
-      number: 41,
-      state: "merged",
-      closedAt: mergedAt,
-    });
-  });
-
-  it("drops a gone team PR and forgets it", async () => {
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      fetchReviewQueue: async () => queueOf([], [], [pr41]),
-    });
-    kv.entries.set(...teamStore([pr41]));
-
-    expect(allPrs(await service.refreshReviewQueue())).toEqual([]);
-    expect(kv.entries.get("team-prs")).toMatchObject({ refs: [] });
-  });
-
-  it("fetches and lists the team PRs a scan finds, and remembers them", async () => {
-    const trackedCalls: PullRequestRef[][] = [];
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      scanTeamPrs: scanning([pr41]).scanTeamPrs,
-      fetchReviewQueue: async (_hostId, tracked) => {
-        trackedCalls.push(tracked);
-        return tracked.length === 0
-          ? queueOf([queuePr("acme/api", 15)])
-          : queueOf([queuePr("acme/api", 15)], [queuePr("acme/api", 41)]);
-      },
-    });
-
-    const result = await service.refreshReviewQueue();
-
-    expect(trackedCalls).toEqual([[], [pr41]]);
-    expect(sections(result).needsReview).toEqual([["acme/api", [15, 41]]]);
-    expect(kv.entries.get("team-prs")).toEqual({
-      v: 1,
-      refs: [pr41],
-      scannedThrough: { "acme/api": new Date(NOW).toISOString() },
-    });
-  });
-
-  it("scans the repositories of review requests and team PRs, a week back the first time", async () => {
-    const scan = scanning([]);
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      scanTeamPrs: scan.scanTeamPrs,
-      fetchReviewQueue: async () => queueOf([queuePr("Acme/API", 15)], [queuePr("acme/web", 3)]),
-    });
-    kv.entries.set(
-      ...teamStore([{ owner: "acme", repo: "web", number: 3 }], {
-        "acme/web": "2026-10-21T08:00:00.000Z",
-      }),
-    );
-
-    await service.refreshReviewQueue();
-
-    expect(scan.requests).toEqual([
-      {
-        repos: [
-          { repo: "acme/api", since: new Date(NOW - WEEK).toISOString() },
-          { repo: "acme/web", since: "2026-10-21T07:50:00.000Z" },
-        ],
-        startedAt: new Date(NOW).toISOString(),
-      },
-    ]);
-  });
-
-  it("finds a stored team PR again without adding or fetching it twice", async () => {
-    const trackedCalls: PullRequestRef[][] = [];
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      scanTeamPrs: scanning([pr41]).scanTeamPrs,
-      fetchReviewQueue: async (_hostId, tracked) => {
-        trackedCalls.push(tracked);
-        return queueOf([], [queuePr("acme/api", 41)]);
-      },
-    });
-    kv.entries.set(...teamStore([pr41]));
-
-    await service.refreshReviewQueue();
-
-    expect(trackedCalls).toEqual([[pr41]]);
-    expect(kv.entries.get("team-prs")).toMatchObject({ refs: [pr41] });
-  });
-
-  it("keeps the scanned time and still loads the queue when the scan fails", async () => {
-    const warnings: string[] = [];
-    const { service, kv } = serviceWith({
-      now: () => NOW,
-      scanTeamPrs: scanning(new Error("gh: HTTP 502")).scanTeamPrs,
-      fetchReviewQueue: async () => queueOf([], [queuePr("acme/api", 41)]),
-      warn: (message) => warnings.push(message),
-    });
-    const stored = teamStore([pr41], { "acme/api": "2026-10-21T08:00:00.000Z" });
-    kv.entries.set(...stored);
-
-    const result = await service.refreshReviewQueue();
-
-    expect(sections(result).needsReview).toEqual([["acme/api", [41]]]);
-    expect(kv.entries.get("team-prs")).toEqual(stored[1]);
-    expect(warnings).toEqual(["Team pull request scan failed: gh: HTTP 502"]);
-  });
-
-  it("scans nothing without review requests or team PRs", async () => {
-    const scan = scanning([]);
-    const { service } = serviceWith({
-      scanTeamPrs: scan.scanTeamPrs,
-      fetchReviewQueue: async () => queueOf([]),
-    });
-
-    await service.refreshReviewQueue();
-
-    expect(scan.requests).toEqual([]);
   });
 });
 
@@ -769,7 +629,7 @@ describe("new activity after the mark", () => {
     return serviceWith({ fetchReviewQueue: async () => queueOf(requested, tracked) });
   }
 
-  it("puts a marked PR back in Needs review with new comments after a reply", async () => {
+  it("keeps a marked PR that is no longer requested in Reviewed, labelled with new comments", async () => {
     const { service, kv } = serviceWithTracked([], [tracked15(activityOf(AFTER))]);
     kv.entries.set(...mark("acme/api", 15, "head-15", MARKED_AT));
 
@@ -779,7 +639,7 @@ describe("new activity after the mark", () => {
       review: "reviewed",
       newActivity: ["new_comments"],
     });
-    expect(sections(result)).toEqual({ needsReview: [["acme/api", [15]]], reviewed: [] });
+    expect(sections(result)).toEqual({ needsReview: [], reviewed: [["acme/api", [15]]] });
   });
 
   it("keeps a marked PR in Reviewed when the comment came before the mark", async () => {
@@ -802,7 +662,7 @@ describe("new activity after the mark", () => {
     const result = await service.refreshReviewQueue();
 
     expect(firstReviewRequest(result)).toMatchObject({
-      requested: true,
+      layer: "Direct",
       newActivity: ["requested_again"],
     });
     expect(sections(result).reviewed).toEqual([]);
@@ -831,11 +691,21 @@ describe("new activity after the mark", () => {
     expect(firstReviewRequest(await service.refreshReviewQueue()).newActivity).toEqual([]);
   });
 
-  it("shows the accent when a marked PR comes back with new activity", async () => {
-    const { service, kv } = serviceWithTracked([], [tracked15(activityOf(AFTER))]);
+  it("shows the accent when a requested and marked PR comes back with new activity", async () => {
+    const { service, kv } = serviceWithTracked(
+      [queuePr("acme/api", 15)],
+      [tracked15(activityOf(AFTER))],
+    );
     kv.entries.set(...mark("acme/api", 15, "head-15", MARKED_AT));
 
     expect(viewOf(await service.refreshReviewQueue()).hasUnseen).toBe(true);
+  });
+
+  it("shows no accent for new activity on a PR that is no longer requested", async () => {
+    const { service, kv } = serviceWithTracked([], [tracked15(activityOf(AFTER))]);
+    kv.entries.set(...mark("acme/api", 15, "head-15", MARKED_AT));
+
+    expect(viewOf(await service.refreshReviewQueue()).hasUnseen).toBe(false);
   });
 
   it("moves the PR to Reviewed when the user marks it reviewed again", async () => {
@@ -1024,10 +894,11 @@ describe("new activity after the mark", () => {
     const { service, kv } = serviceWith();
     const loaded = await service.refreshReviewQueue();
     const stored = structuredClone(loaded) as { kind: "ok" } & Record<string, unknown>;
-    const prs = (stored.needsReview as { prs: Record<string, unknown>[] }[])[0]!.prs;
+    const layers = stored.layers as { prs: { prs: Record<string, unknown>[] }[] }[];
+    const prs = layers[0]!.prs[0]!.prs;
     delete prs[0]!.newActivity;
     delete prs[0]!.activity;
-    kv.entries.set(REVIEW_QUEUE_STORAGE_KEY, { v: 5, result: stored });
+    kv.entries.set(REVIEW_QUEUE_STORAGE_KEY, { v: 6, result: stored });
 
     expect(firstReviewRequest((await service.getReviewQueue()) as LoadedReviewQueue)).toMatchObject(
       { activity: null, newActivity: [] },
@@ -1036,15 +907,15 @@ describe("new activity after the mark", () => {
 });
 
 describe("sort order", () => {
-  it("puts groups and PRs whose thread needs the user first, then sorts by last update", async () => {
+  it("puts groups and PRs whose thread needs the user first, then the oldest PR first", async () => {
     const { service } = serviceWith({
       fetchReviewQueue: async () =>
         queueOf([
-          queuePr("acme/api", 15, { updatedAt: "2026-10-02T09:55:00Z" }),
-          queuePr("acme/api", 12, { updatedAt: "2026-10-02T09:00:00Z" }),
-          queuePr("acme/web", 3, { updatedAt: "2026-09-30T09:00:00Z" }),
-          queuePr("acme/web", 4, { updatedAt: "2026-10-01T09:00:00Z" }),
-          queuePr("acme/docs", 1),
+          queuePr("acme/api", 15, { createdAt: "2026-09-20T09:00:00Z" }),
+          queuePr("acme/api", 12, { createdAt: "2026-09-25T09:00:00Z" }),
+          queuePr("acme/web", 3, { createdAt: "2026-10-01T09:00:00Z" }),
+          queuePr("acme/web", 4, { createdAt: "2026-09-01T09:00:00Z" }),
+          queuePr("acme/docs", 1, { createdAt: "2026-09-10T09:00:00Z" }),
         ]),
       listReviewThreads: async () => [reviewThread("thr_review", { hasPendingInteraction: true })],
       readPluginMetadata: metadataOf({ thr_review: reviewPrEntry("acme/web", 3) }),
@@ -1052,8 +923,25 @@ describe("sort order", () => {
 
     expect(sections(await service.refreshReviewQueue()).needsReview).toEqual([
       ["acme/web", [3, 4]],
-      ["acme/api", [15, 12]],
       ["acme/docs", [1]],
+      ["acme/api", [15, 12]],
+    ]);
+  });
+
+  it("orders groups by their oldest PR, then by name", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () =>
+        queueOf([
+          queuePr("acme/b", 1, { createdAt: "2026-09-10T09:00:00Z" }),
+          queuePr("acme/a", 2, { createdAt: "2026-09-10T09:00:00Z" }),
+          queuePr("acme/c", 3, { createdAt: "2026-09-01T09:00:00Z" }),
+        ]),
+    });
+
+    expect(sections(await service.refreshReviewQueue()).needsReview.map(([repo]) => repo)).toEqual([
+      "acme/c",
+      "acme/a",
+      "acme/b",
     ]);
   });
 });
@@ -1233,7 +1121,7 @@ describe("startReview", () => {
     const update = published[2]!;
     if (update.kind !== "error") throw new Error("expected error");
     expect(update.message).toBe("rate limited");
-    expect(update.lastGood?.needsReview[0]!.prs[0]!.thread?.id).toBe("thr_review");
+    expect(update.lastGood?.layers[0]!.prs[0]!.prs[0]!.thread?.id).toBe("thr_review");
   });
 
   it("keeps a load that finished during the re-link", async () => {
@@ -1524,8 +1412,16 @@ describe("unseen PRs", () => {
   it("reads a stored view from before unseen tracking as all seen", async () => {
     const { service, kv } = serviceWith();
     kv.entries.set(REVIEW_QUEUE_STORAGE_KEY, {
-      v: 5,
-      result: { kind: "ok", needsReview: [], reviewed: [], truncated: false, loadedAt: 1 },
+      v: 6,
+      result: {
+        kind: "ok",
+        layers: [],
+        reviewed: [],
+        merged: [],
+        ignored: [],
+        hiddenEverywhere: [],
+        loadedAt: 1,
+      },
     });
 
     expect(await service.getReviewQueue()).toMatchObject({ hasUnseen: false });
@@ -1607,9 +1503,10 @@ describe("returned review threads", () => {
     const loaded = await service.refreshReviewQueue();
     const stored = structuredClone(loaded) as { kind: "ok" } & Record<string, unknown>;
     delete stored.hasReturned;
-    const prs = (stored.needsReview as { prs: { thread: Record<string, unknown> }[] }[])[0]!.prs;
+    const layers = stored.layers as { prs: { prs: { thread: Record<string, unknown> }[] }[] }[];
+    const prs = layers[0]!.prs[0]!.prs;
     delete prs[0]!.thread.returned;
-    kv.entries.set(REVIEW_QUEUE_STORAGE_KEY, { v: 5, result: stored });
+    kv.entries.set(REVIEW_QUEUE_STORAGE_KEY, { v: 6, result: stored });
 
     expect(returnedOf((await service.getReviewQueue()) as LoadedReviewQueue)).toEqual({
       row: null,
@@ -1691,7 +1588,7 @@ describe("returned review threads", () => {
 
     const view = viewOf(await service.refreshReviewQueue());
 
-    expect(view.needsReview).toEqual([]);
+    expect(view.layers.flatMap((layer) => layer.prs)).toEqual([]);
     expect(view.hasReturned).toBe(true);
   });
 
@@ -1808,5 +1705,415 @@ describe("linked thread status", () => {
 
     await new Promise((resolve) => setImmediate(resolve));
     expect(published).toHaveLength(1);
+  });
+});
+
+function reviewThreadOn15() {
+  return {
+    listReviewThreads: async () => [reviewThread("thr_review", { status: "idle" })],
+    readPluginMetadata: metadataOf({ thr_review: reviewPrEntry("acme/api", 15) }),
+    archiveThread: async () => {},
+  };
+}
+
+describe("layers", () => {
+  it("sends each layer query with its hidden repos and the ones hidden everywhere", async () => {
+    const { service, kv, queryCalls } = serviceWith();
+    await service.hideRepo({ repo: "Acme/Web", layer: "Team" });
+    await service.hideRepo({ repo: "acme/docs", layer: null });
+    queryCalls.length = 0;
+
+    await service.refreshReviewQueue();
+
+    expect(queryCalls[0]).toEqual([
+      "is:pr is:open draft:false archived:false user-review-requested:@me -repo:acme/docs",
+      "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs",
+      "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs -repo:acme/web",
+    ]);
+    expect(kv.entries.get("review-filters")).toMatchObject({ v: 2 });
+  });
+
+  it("sends one search for Teammates and Team while they hide the same repos", async () => {
+    const { service, queryCalls } = serviceWith();
+
+    await service.refreshReviewQueue();
+
+    expect(queryCalls[0]).toEqual([
+      "is:pr is:open draft:false archived:false user-review-requested:@me",
+      "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me",
+    ]);
+  });
+
+  it("puts each PR in the layer whose search found it, the first layer when both did", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () =>
+        queueOf(
+          [queuePr("acme/api", 15)],
+          [],
+          [],
+          [queuePr("acme/api", 15), queuePr("acme/web", 3)],
+        ),
+    });
+
+    expect(allSections(await service.refreshReviewQueue())).toEqual({
+      Direct: [["acme/api", [15]]],
+      Teammates: [],
+      Team: [["acme/web", [3]]],
+      reviewed: [],
+      merged: [],
+      ignored: [],
+    });
+  });
+
+  it("lists a PR with a skip label last in its layer and leaves it out of the count", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () =>
+        queueOf([
+          queuePr("acme/api", 15, { labels: ["do not review"], updatedAt: "2026-10-02T10:00:00Z" }),
+          queuePr("acme/api", 12),
+        ]),
+    });
+
+    const [direct] = viewOf(await service.refreshReviewQueue()).layers;
+
+    expect(numbers(direct!.prs)).toEqual([["acme/api", [12, 15]]]);
+    expect(direct!.count).toBe(1);
+    expect(direct!.prs[0]!.prs[1]!.skipLabel).toBe("do not review");
+  });
+
+  it("flags only the layer whose search was cut at 50 as truncated", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () => ({
+        layers: [
+          { prs: [], truncated: false },
+          { prs: [queuePr("acme/api", 15)], truncated: true },
+        ],
+        tracked: [],
+        gone: [],
+      }),
+    });
+
+    const view = viewOf(await service.refreshReviewQueue());
+
+    expect(view.layers.map((layer) => [layer.name, layer.truncated])).toEqual([
+      ["Direct", false],
+      ["Teammates", true],
+      ["Team", true],
+    ]);
+  });
+});
+
+describe("merged and closed PRs", () => {
+  const DAY = 24 * 3_600_000;
+  const MERGED_AT = Date.parse("2026-10-01T12:00:00Z");
+  const merged15 = queuePr("acme/api", 15, {
+    state: "merged",
+    closedAt: new Date(MERGED_AT).toISOString(),
+  });
+
+  it("lists a merged PR with a review thread under Merged", async () => {
+    const { service } = serviceWith({
+      ...reviewThreadOn15(),
+      fetchReviewQueue: async () => queueOf([], [merged15]),
+      now: () => MERGED_AT + DAY,
+    });
+
+    expect(allSections(await service.refreshReviewQueue())).toMatchObject({
+      reviewed: [],
+      merged: [["acme/api", [15]]],
+    });
+  });
+
+  it("keeps a merged PR while its review thread is open, also after 7 days", async () => {
+    const { service } = serviceWith({
+      ...reviewThreadOn15(),
+      fetchReviewQueue: async () => queueOf([], [merged15]),
+      now: () => MERGED_AT + 30 * DAY,
+    });
+
+    expect(allSections(await service.refreshReviewQueue()).merged).toEqual([["acme/api", [15]]]);
+  });
+
+  it("keeps a merged PR with only a mark for 7 days, then drops it and its mark", async () => {
+    let now = MERGED_AT + 7 * DAY;
+    const { service, kv } = serviceWith({
+      fetchReviewQueue: async () => queueOf([], [merged15]),
+      now: () => now,
+    });
+    kv.entries.set(...mark("acme/api", 15, "head-15"));
+
+    expect(allSections(await service.refreshReviewQueue()).merged).toEqual([["acme/api", [15]]]);
+
+    now += 1;
+    expect(allSections(await service.refreshReviewQueue()).merged).toEqual([]);
+    expect(kv.entries.has("reviewed:acme/api#15")).toBe(false);
+  });
+
+  it("drops a merged PR once its review thread is archived and 7 days passed", async () => {
+    const threads = [reviewThread("thr_review")];
+    const { service } = serviceWith({
+      ...reviewThreadOn15(),
+      listReviewThreads: async () => threads,
+      fetchReviewQueue: async () => queueOf([], [merged15]),
+      now: () => MERGED_AT + 8 * DAY,
+    });
+    await service.refreshReviewQueue();
+    threads[0] = reviewThread("thr_review", { archivedAt: 5 });
+
+    expect(await service.archiveReview("thr_review")).toEqual({ kind: "ok" });
+
+    await vi.waitFor(async () =>
+      expect(allSections((await service.getReviewQueue()) as LoadedReviewQueue).merged).toEqual([]),
+    );
+  });
+});
+
+describe("ignored PRs", () => {
+  it("moves an ignored PR to Ignored and out of the counts", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () => queueOf([queuePr("acme/api", 15), queuePr("acme/api", 12)]),
+    });
+    await service.refreshReviewQueue();
+
+    expect(await service.ignorePr({ repo: "Acme/API", number: 15 })).toEqual({ kind: "ok" });
+
+    const view = viewOf((await service.getReviewQueue()) as LoadedReviewQueue);
+    expect(numbers(view.ignored)).toEqual([["acme/api", [15]]]);
+    expect(view.ignored[0]!.prs[0]!.ignored).toBe(true);
+    expect(view.layers[0]!.count).toBe(1);
+  });
+
+  it("brings an ignored PR back to its layer", async () => {
+    const { service } = serviceWith({
+      fetchReviewQueue: async () => queueOf([queuePr("acme/api", 15)]),
+    });
+    await service.ignorePr({ repo: "acme/api", number: 15 });
+    await service.refreshReviewQueue();
+
+    await service.unignorePr({ repo: "acme/api", number: 15 });
+
+    expect(allSections((await service.getReviewQueue()) as LoadedReviewQueue)).toMatchObject({
+      Direct: [["acme/api", [15]]],
+      ignored: [],
+    });
+  });
+
+  it("lists an ignored PR under Merged once it merges with a review thread open", async () => {
+    const { service } = serviceWith({
+      ...reviewThreadOn15(),
+      fetchReviewQueue: async () =>
+        queueOf(
+          [],
+          [queuePr("acme/api", 15, { state: "merged", closedAt: "1970-01-01T00:00:00Z" })],
+        ),
+    });
+    await service.ignorePr({ repo: "acme/api", number: 15 });
+
+    expect(allSections(await service.refreshReviewQueue())).toMatchObject({
+      merged: [["acme/api", [15]]],
+      ignored: [],
+    });
+  });
+
+  it("forgets an ignored PR that no search lists any more", async () => {
+    let prs = [queuePr("acme/api", 15)];
+    const { service, kv } = serviceWith({ fetchReviewQueue: async () => queueOf(prs) });
+    await service.ignorePr({ repo: "acme/api", number: 15 });
+    await service.refreshReviewQueue();
+    prs = [];
+
+    await service.refreshReviewQueue();
+
+    expect(kv.entries.get("review-ignored")).toEqual({ v: 1, keys: [] });
+  });
+
+  it("keeps an ignored PR that may sit past the first 50 of a truncated layer", async () => {
+    const { service, kv } = serviceWith({
+      fetchReviewQueue: async () => ({
+        layers: [
+          { prs: [], truncated: true },
+          { prs: [], truncated: false },
+        ],
+        tracked: [],
+        gone: [],
+      }),
+    });
+    await service.ignorePr({ repo: "acme/api", number: 15 });
+
+    await service.refreshReviewQueue();
+
+    expect(kv.entries.get("review-ignored")).toEqual({ v: 1, keys: ["acme/api#15"] });
+  });
+
+  it("rejects a repository that is not owner/name", async () => {
+    const { service } = serviceWith();
+
+    expect(await service.ignorePr({ repo: "acme", number: 15 })).toMatchObject({ kind: "error" });
+  });
+});
+
+describe("hidden repositories", () => {
+  it("drops a repo from its layer at once and lists it as hidden there", async () => {
+    const { service, published } = serviceWith({
+      fetchReviewQueue: async () =>
+        queueOf([queuePr("acme/api", 15)], [], [], [queuePr("acme/web", 3)]),
+    });
+    await service.refreshReviewQueue();
+
+    expect(await service.hideRepo({ repo: "Acme/Web", layer: "Team" })).toEqual({ kind: "ok" });
+
+    const relinked = viewOf(published[1]!);
+    expect(numbers(relinked.layers[2]!.prs)).toEqual([]);
+    expect(relinked.layers[2]!.hiddenRepos).toEqual(["acme/web"]);
+    expect(relinked.layers[0]!.hiddenRepos).toEqual([]);
+  });
+
+  it("keeps a tracked PR of a hidden repo, under Reviewed", async () => {
+    const { service, kv } = serviceWith({
+      fetchReviewQueue: async () => queueOf([queuePr("acme/api", 15)], [queuePr("acme/api", 15)]),
+    });
+    kv.entries.set(...mark("acme/api", 15, "old-head"));
+    await service.hideRepo({ repo: "acme/api", layer: null });
+
+    const sections = allSections(await service.refreshReviewQueue());
+
+    expect(sections).toMatchObject({ Direct: [], reviewed: [["acme/api", [15]]] });
+  });
+
+  it("lists repos hidden everywhere and shows them again", async () => {
+    const { service } = serviceWith();
+    await service.hideRepo({ repo: "acme/web", layer: null });
+
+    expect(viewOf(await service.refreshReviewQueue()).hiddenEverywhere).toEqual(["acme/web"]);
+
+    await service.showRepo({ repo: "acme/web", layer: null });
+
+    expect(viewOf(await service.refreshReviewQueue()).hiddenEverywhere).toEqual([]);
+  });
+});
+
+describe("teammates", () => {
+  const teamPrs = [
+    queuePr("acme/web", 3, { author: "GBrari" }),
+    queuePr("acme/web", 4, { author: "samih7" }),
+    queuePr("acme/web", 5, { author: null }),
+  ];
+
+  function withTeam(overrides: Partial<ReviewQueueServiceDeps> = {}) {
+    const membersOf: string[] = [];
+    const deps = serviceWith({
+      fetchReviewQueue: async () => queueOf([], [], [], teamPrs),
+      fetchTeamMembers: async (_hostId, team) => {
+        membersOf.push(team);
+        return ["gbrari", "koenvangeert"];
+      },
+      ...overrides,
+    });
+    return { ...deps, membersOf };
+  }
+
+  it("lists every team request under Team until a team is picked", async () => {
+    const { service, membersOf } = withTeam();
+
+    const view = viewOf(await service.refreshReviewQueue());
+
+    expect(view.layers.map((layer) => [layer.name, numbers(layer.prs)])).toEqual([
+      ["Direct", []],
+      ["Teammates", []],
+      ["Team", [["acme/web", [3, 4, 5]]]],
+    ]);
+    expect(view.teammatesTeam).toBeNull();
+    expect(membersOf).toEqual([]);
+  });
+
+  it("moves the team requests that teammates wrote into Teammates", async () => {
+    const { service, membersOf } = withTeam();
+
+    expect(await service.setTeammatesTeam({ team: "acme/core" })).toEqual({ kind: "ok" });
+    const view = viewOf(await service.refreshReviewQueue());
+
+    expect(membersOf).toContain("acme/core");
+    expect(view.teammatesTeam).toBe("acme/core");
+    expect(view.layers.map((layer) => [layer.name, numbers(layer.prs), layer.count])).toEqual([
+      ["Direct", [], 0],
+      ["Teammates", [["acme/web", [3]]], 1],
+      ["Team", [["acme/web", [4, 5]]], 2],
+    ]);
+  });
+
+  it("keeps a direct request from a teammate in Direct", async () => {
+    const { service } = withTeam({
+      fetchReviewQueue: async () =>
+        queueOf([queuePr("acme/web", 3, { author: "gbrari" })], [], [], teamPrs),
+    });
+    await service.setTeammatesTeam({ team: "acme/core" });
+
+    const sections = allSections(await service.refreshReviewQueue());
+
+    expect(sections).toMatchObject({ Direct: [["acme/web", [3]]], Teammates: [] });
+  });
+
+  it("lists every team request under Team and keeps the reason when the members cannot be read", async () => {
+    const { service } = withTeam({
+      fetchTeamMembers: async () => {
+        throw new Error("HTTP 404");
+      },
+    });
+    await service.setTeammatesTeam({ team: "acme/core" });
+
+    const view = viewOf(await service.refreshReviewQueue());
+    expect(view.teammatesError).toBe("HTTP 404");
+    expect(numbers(view.layers[2]!.prs)).toEqual([["acme/web", [3, 4, 5]]]);
+
+    await service.ignorePr({ repo: "acme/web", number: 4 });
+    expect(viewOf((await service.getReviewQueue()) as LoadedReviewQueue).teammatesError).toBe(
+      "HTTP 404",
+    );
+  });
+
+  it("lists your teams for the picker", async () => {
+    const { service } = withTeam({
+      listViewerTeams: async () => [{ team: "acme/core", name: "Core" }],
+    });
+
+    expect(await service.getViewerTeams()).toEqual({
+      kind: "ok",
+      teams: [{ team: "acme/core", name: "Core" }],
+    });
+  });
+
+  it("reports why your teams cannot be read", async () => {
+    const { service } = withTeam({ primaryHostId: async () => null });
+
+    expect(await service.getViewerTeams()).toEqual({ kind: "error", message: "No host available" });
+  });
+
+  it("keeps the hidden repos of the first version of the filters", async () => {
+    const queries: string[][] = [];
+    const { service, kv } = withTeam({
+      fetchReviewQueue: async (_hostId, layerQueries) => {
+        queries.push(layerQueries);
+        return queueOf([], [], [], teamPrs);
+      },
+    });
+    kv.entries.set("review-filters", {
+      v: 1,
+      filters: {
+        layers: [
+          { name: "Direct", query: "old", excludeRepos: [] },
+          { name: "Team", query: "old", excludeRepos: ["acme/web"] },
+        ],
+        excludeRepos: ["acme/docs"],
+        skipLabels: ["WIP"],
+      },
+    });
+
+    await service.refreshReviewQueue();
+
+    expect(queries[0]).toEqual([
+      "is:pr is:open draft:false archived:false user-review-requested:@me -repo:acme/docs",
+      "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs",
+      "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs -repo:acme/web",
+    ]);
   });
 });

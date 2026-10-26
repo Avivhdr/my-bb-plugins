@@ -6,10 +6,14 @@ import readyToEnqueuePage from "./test/fixtures/pr-25693-overview-ready-to-enque
 import prFiles from "./test/fixtures/pr-25259-files.json";
 import reviewThreads from "./test/fixtures/pr-25259-review-threads.json";
 import reviewQueue from "./test/fixtures/review-queue.json";
-import reviewQueueTracked from "./test/fixtures/review-queue-tracked.json";
 import { reviewThreadsWithAttachment, SIGNED_ATTACHMENT_URL } from "./test/attachment";
 import type { NewThreadRequest } from "@get-bb/plugin-sdk";
-import type { CreateCommentDraftResult, LoadedReviewQueue, ReviewResult } from "./contract";
+import type {
+  CreateCommentDraftResult,
+  LoadedReviewQueue,
+  ReviewQueueView,
+  ReviewResult,
+} from "./contract";
 import type { PrSummary } from "./core/summary";
 import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server";
@@ -315,6 +319,42 @@ describe("refresh", () => {
     await harness.behavior.callRpc("refresh", { threadId: "thr_1" });
 
     expect(harness.realtimeSignals).toHaveLength(1);
+  });
+});
+
+describe("PR subject ids", () => {
+  const SUBJECT = "pr:collibra/frontend#25337";
+
+  it("reads the PR of a subject id through the primary host and writes no thread summary", async () => {
+    const harness = await setup({ threads: [], primaryHostId: "host-7", host: pages() });
+
+    const result = await harness.behavior.callRpc("getInsight", { threadId: SUBJECT });
+
+    expect(result).toMatchObject({ kind: "ok", insight: { pr: { number: 25337 } } });
+    expect(overviewRefreshes(harness)).toEqual([
+      expect.objectContaining({
+        hostId: "host-7",
+        input: { owner: "collibra", repo: "frontend", number: 25337, after: null },
+      }),
+    ]);
+    expect(metadataUpdates(harness)).toEqual([]);
+  });
+
+  it("says there is no host without a primary host", async () => {
+    const harness = await setup({ threads: [], primaryHostId: null, host: pages() });
+
+    expect(await harness.behavior.callRpc("getInsight", { threadId: SUBJECT })).toEqual({
+      kind: "error",
+      message: "No host to read GitHub from",
+    });
+  });
+
+  it("knows of no local commits for a subject id", async () => {
+    const harness = await setup({ threads: [], host: pages() });
+
+    expect(await harness.behavior.callRpc("localCommitsAhead", { threadId: SUBJECT })).toEqual({
+      kind: "unknown",
+    });
   });
 });
 
@@ -2923,8 +2963,8 @@ describe("submitReview", () => {
     expect(
       harness.experimental_hostRpcCalls
         .filter(({ method }) => method === "fetchReviewQueue")
-        .map(({ input }) => input),
-    ).toEqual([{ tracked: [{ owner: "collibra", repo: "frontend", number: 25259 }] }]);
+        .map(({ input }) => (input as { tracked: unknown }).tracked),
+    ).toEqual([[{ owner: "collibra", repo: "frontend", number: 25259 }]]);
   });
 
   it("keeps all drafts and names the GitHub error when the submit fails", async () => {
@@ -3115,24 +3155,24 @@ function acmeApiPr(number: number): PullRequestResult {
   };
 }
 
-function teamPrPage(...nodes: unknown[]) {
-  return {
-    data: {
-      viewer: { login: "me" },
-      search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes },
-    },
+/** The fixture answers the first layer search; the other layers find nothing. */
+function withEmptyLayers(response: { data: object }, layerCount: number) {
+  const empty = Object.fromEntries(
+    Array.from({ length: layerCount - 1 }, (_, i) => [`l${i + 1}`, { issueCount: 0, nodes: [] }]),
+  );
+  return { data: { ...empty, ...response.data } };
+}
+
+function queueHost(trackedResponse: { data: object } = reviewQueue) {
+  return ({ input }: HostCall) => {
+    const { layerQueries, tracked } = input as { layerQueries: string[]; tracked: unknown[] };
+    const response = tracked.length === 0 ? reviewQueue : trackedResponse;
+    return ok([withEmptyLayers(response, layerQueries.length)]);
   };
 }
 
-function queueHost(teamPage = teamPrPage(), trackedResponse: unknown = reviewQueue) {
-  return ({ method, input }: HostCall) => {
-    if (method === "fetchViewerTeams") {
-      return ok([[{ slug: "core", organization: { login: "acme" } }]]);
-    }
-    if (method === "fetchTeamPrPage") return ok(teamPage);
-    const { tracked } = input as { tracked: unknown[] };
-    return ok([tracked.length === 0 ? reviewQueue : trackedResponse]);
-  };
+function layerGroups(view: ReviewQueueView) {
+  return view.layers.flatMap((layer) => layer.prs);
 }
 
 function hostMethods(harness: Awaited<ReturnType<typeof setup>>) {
@@ -3154,55 +3194,10 @@ describe("review queue", () => {
     await settle();
     run.controller.abort();
 
-    expect(hostMethods(harness)).toEqual([
-      "fetchReviewQueue",
-      "fetchViewerTeams",
-      "fetchTeamPrPage",
-      "fetchTeamPrPage",
-      "fetchTeamPrPage",
-    ]);
+    expect(hostMethods(harness)).toEqual(["fetchReviewQueue"]);
     const stored = await harness.behavior.callRpc("getReviewQueue", {});
     expect(stored).toMatchObject({ kind: "ok" });
     expect(harness.realtimeSignals).toEqual([{ channel: "review-queue.updated", payload: stored }]);
-    expect(harness.experimental_hostRpcCalls).toHaveLength(5);
-  });
-
-  it("lists a merged PR once requested from the viewer's team, from the scan of a requested repository", async () => {
-    const merged = {
-      ...reviewQueueTracked.data.t0.pullRequest,
-      number: 41,
-      url: "https://github.com/acme/api/pull/41",
-      state: "MERGED",
-      mergedAt: new Date(Date.now() - 3_600_000).toISOString(),
-      closedAt: new Date(Date.now() - 3_600_000).toISOString(),
-    };
-    const teamRequest = (number: number, reviewer: unknown) => ({
-      number,
-      updatedAt: "2026-10-01T10:00:00Z",
-      repository: { nameWithOwner: "acme/api" },
-      timelineItems: { nodes: [{ requestedReviewer: reviewer }] },
-    });
-    const harness = await setup({
-      threads: [],
-      host: queueHost(
-        teamPrPage(
-          teamRequest(41, { __typename: "Team", combinedSlug: "Acme/Core" }),
-          teamRequest(42, { __typename: "Team", combinedSlug: "acme/other" }),
-        ),
-        { data: { ...reviewQueue.data, t0: { pullRequest: merged } } },
-      ),
-    });
-
-    const result = (await harness.behavior.callRpc("refreshReviewQueue", {})) as LoadedReviewQueue;
-
-    expect(harness.experimental_hostRpcCalls.at(-1)).toMatchObject({
-      method: "fetchReviewQueue",
-      input: { tracked: [{ owner: "acme", repo: "api", number: 41 }] },
-    });
-    if (result.kind !== "ok") throw new Error(result.message);
-    const api = result.needsReview.find((group) => group.repo === "acme/api")!;
-    expect(api.prs.map(({ number, state }) => [number, state])).toContainEqual([41, "merged"]);
-    expect(api.prs.map(({ number }) => number)).not.toContain(42);
   });
 
   it("serves the stored view after a plugin reload", async () => {
@@ -3235,7 +3230,13 @@ describe("review queue", () => {
     expect(harness.experimental_hostRpcCalls[0]).toEqual(
       expect.objectContaining({
         method: "fetchReviewQueue",
-        input: { tracked: [] },
+        input: {
+          layerQueries: [
+            "is:pr is:open draft:false archived:false user-review-requested:@me",
+            "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me",
+          ],
+          tracked: [],
+        },
         hostId: "host-7",
       }),
     );
@@ -3243,12 +3244,12 @@ describe("review queue", () => {
       new Set(["host-7"]),
     );
     if (result.kind !== "ok") throw new Error(result.message);
-    const api = result.needsReview.find((group) => group.repo === "acme/api")!;
+    const api = layerGroups(result).find((group) => group.repo === "acme/api")!;
     expect(
       api.prs.map(({ number, projectIds, thread }) => ({ number, projectIds, thread })),
     ).toEqual([
-      { number: 15, projectIds: ["prj_api"], thread: null },
       { number: 12, projectIds: ["prj_api"], thread: null },
+      { number: 15, projectIds: ["prj_api"], thread: null },
     ]);
   });
 
@@ -3307,18 +3308,18 @@ describe("review queue", () => {
     const result = (await harness.behavior.callRpc("refreshReviewQueue", {})) as LoadedReviewQueue;
 
     if (result.kind !== "ok") throw new Error(result.message);
-    const api = result.needsReview.find((group) => group.repo === "acme/api")!;
+    const api = layerGroups(result).find((group) => group.repo === "acme/api")!;
     expect(api.prs.map(({ number, thread }) => ({ number, thread }))).toEqual([
-      {
-        number: 15,
-        thread: { id: "thr_hidden", status: "idle", isReviewThread: false, returned: null },
-      },
       {
         number: 12,
         thread: { id: "thr_review", status: "idle", isReviewThread: true, returned: null },
       },
+      {
+        number: 15,
+        thread: { id: "thr_hidden", status: "idle", isReviewThread: false, returned: null },
+      },
     ]);
-    expect(harness.experimental_hostRpcCalls[0]!.input).toEqual({
+    expect(harness.experimental_hostRpcCalls[0]!.input).toMatchObject({
       tracked: [{ owner: "acme", repo: "api", number: 12 }],
     });
   });
@@ -3346,7 +3347,7 @@ describe("review queue", () => {
     const loadCalls = harness.experimental_hostRpcCalls.length;
     if (loaded.kind !== "ok") throw new Error(loaded.message);
     expect(loaded.hasUnseen).toBe(true);
-    const prs = loaded.needsReview.flatMap((group) =>
+    const prs = layerGroups(loaded).flatMap((group) =>
       group.prs.map(({ repo, number }) => ({ repo, number })),
     );
 
@@ -3427,7 +3428,9 @@ describe("startReview", () => {
     expect(harness.experimental_hostRpcCalls).toHaveLength(loadCalls);
     const update = harness.realtimeSignals.at(-1)!.payload as LoadedReviewQueue;
     if (update.kind !== "ok") throw new Error(update.message);
-    const row = update.needsReview.flatMap((group) => group.prs).find((pr) => pr.number === 15)!;
+    const row = layerGroups(update)
+      .flatMap((group) => group.prs)
+      .find((pr) => pr.number === 15)!;
     expect(row.thread?.id).toBe("thr_review");
   });
 

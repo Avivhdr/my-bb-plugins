@@ -33,7 +33,12 @@ describe("Pull Requests sidebar badge", () => {
   it("shows nothing while loading and when nothing waits", async () => {
     let result: ReviewQueueResult = { kind: "loading" };
     const slot = renderBadge(() => result);
-    await vi.waitFor(() => expect(slot.inspection.rpcCalls).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(slot.inspection.rpcCalls.map((call) => call.method).sort()).toEqual([
+        "getActivity",
+        "getReviewQueue",
+      ]),
+    );
     expect(slot.container.textContent).toBe("");
 
     result = ok(view([]));

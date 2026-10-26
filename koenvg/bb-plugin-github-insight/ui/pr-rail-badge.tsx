@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { reviewBadge } from "../core/review-badge";
+import { useActivity } from "./use-activity";
 import { useReviewQueue } from "./use-review-queue";
 
 const RAIL_ITEM = '[data-nav-rail-item="github-insight/pull-requests"]';
@@ -9,13 +10,23 @@ const CUTOUT = { boxShadow: "0 0 0 2px var(--surface-recessed-solid)" };
 export function PrRailBadge() {
   const item = useHostElement(RAIL_ITEM);
   const badge = reviewBadge(useReviewQueue().view);
-  if (item === null || badge === null) return null;
-  const loud = badge.unseen || badge.returned;
+  const unreadActivity = useActivity().view?.unread ?? 0;
+  if (item === null || (badge === null && unreadActivity === 0)) return null;
+  const loud = badge !== null && (badge.unseen || badge.returned);
   return createPortal(
     // Plugin CSS only applies inside an element tagged with the plugin id.
     <span data-bb-plugin="github-insight" className="pointer-events-none relative w-0 self-stretch">
       <span className="absolute inset-y-0 right-0 aspect-square">
-        {badge.count === null ? (
+        {unreadActivity > 0 && (
+          <span
+            role="img"
+            aria-label={`${unreadActivity} unread comments`}
+            data-testid="rail-activity-dot"
+            style={CUTOUT}
+            className="absolute left-1/2 top-1/2 mt-1 ml-1 size-2 rounded-full bg-attention"
+          />
+        )}
+        {badge === null ? null : badge.count === null ? (
           <span
             role="img"
             aria-label="Review agent came back"

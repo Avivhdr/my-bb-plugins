@@ -7,7 +7,14 @@ import type {
   QueueSection,
   ReviewQueueResult,
   ReviewQueueView,
+  ActivityResult,
+  ActivityViewItem,
+  ActivityViewPr,
+  LoadedActivity,
+  ReviewInstructions,
+  ViewerTeamsResult,
 } from "../contract";
+import { DEFAULT_REVIEW_INSTRUCTIONS } from "../core/review-prompt";
 
 export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
   return {
@@ -15,6 +22,7 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     number: 15,
     title: "Add rate limits",
     author: "alice",
+    authorAvatarUrl: null,
     createdAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
     updatedAt: new Date().toISOString(),
     draft: false,
@@ -25,12 +33,15 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     url: "https://github.com/acme/api/pull/15",
     state: "open",
     closedAt: null,
+    labels: [],
     activity: null,
-    requested: true,
+    layer: "Direct",
     projectIds: ["prj_api", "prj_api_old"],
     review: "needs_review",
     newActivity: [],
     thread: null,
+    skipLabel: null,
+    ignored: false,
     ...overrides,
   };
 }
@@ -44,11 +55,34 @@ export function section(prs: LinkedQueuePr[]): QueueSection {
 
 const LOADED_AT = Date.parse("2026-10-02T09:30:00Z");
 
+export const LAYERS = [
+  { name: "Direct", teammates: null },
+  { name: "Teammates", teammates: "only" },
+  { name: "Team", teammates: "exclude" },
+] as const;
+
+/** Sorts PRs the way the service does: merged, ignored, reviewed, then each PR's layer. */
 export function view(prs: LinkedQueuePr[], truncated = false): ReviewQueueView {
+  const open = prs.filter((pr) => pr.state === "open" && !pr.ignored);
+  const waiting = open.filter((pr) => !isReviewed(pr) && pr.layer !== null);
   return {
-    needsReview: section(prs.filter((pr) => !isReviewed(pr))),
-    reviewed: section(prs.filter(isReviewed)),
-    truncated,
+    layers: LAYERS.map(({ name, teammates }) => {
+      const layerPrs = waiting.filter((pr) => pr.layer === name);
+      return {
+        name,
+        prs: section(layerPrs),
+        count: layerPrs.filter((pr) => pr.skipLabel === null).length,
+        truncated: truncated && name === "Direct",
+        hiddenRepos: [],
+        teammates,
+      };
+    }),
+    reviewed: section(open.filter((pr) => isReviewed(pr) || pr.layer === null)),
+    merged: section(prs.filter((pr) => pr.state !== "open")),
+    ignored: section(prs.filter((pr) => pr.state === "open" && pr.ignored)),
+    hiddenEverywhere: [],
+    teammatesTeam: null,
+    teammatesError: null,
     loadedAt: LOADED_AT,
     hasUnseen: false,
     hasReturned: false,
@@ -104,7 +138,23 @@ export interface PanelRpc {
   markNeedsReview: () => ActionResult | Promise<ActionResult>;
   markQueueSeen: () => ActionResult | Promise<ActionResult>;
   markThreadOpened: () => ActionResult | Promise<ActionResult>;
+  hideRepo: () => ActionResult | Promise<ActionResult>;
+  showRepo: () => ActionResult | Promise<ActionResult>;
+  ignorePr: () => ActionResult | Promise<ActionResult>;
+  unignorePr: () => ActionResult | Promise<ActionResult>;
+  getViewerTeams: () => ViewerTeamsResult | Promise<ViewerTeamsResult>;
+  setTeammatesTeam: () => ActionResult | Promise<ActionResult>;
+  getReviewInstructions: () => ReviewInstructions | Promise<ReviewInstructions>;
+  setReviewInstructions: () => ActionResult | Promise<ActionResult>;
+  getActivity: () => ActivityResult | Promise<ActivityResult>;
+  refreshActivity: () => LoadedActivity | Promise<LoadedActivity>;
+  markActivityRead: () => ActionResult | Promise<ActionResult>;
+  markActivityPrRead: () => ActionResult | Promise<ActionResult>;
+  markAllActivityRead: () => ActionResult | Promise<ActionResult>;
+  setActivityMuted: () => ActionResult | Promise<ActionResult>;
   getPrInsight: () => InsightResult | Promise<InsightResult>;
+  getInsight: () => InsightResult | Promise<InsightResult>;
+  refresh: () => InsightResult | Promise<InsightResult>;
   refreshPrInsight: () => InsightResult | Promise<InsightResult>;
 }
 
@@ -124,6 +174,62 @@ export function panelRpc(getReviewQueue: QueueHandler, rpc: Partial<PanelRpc> = 
     markNeedsReview: () => ({ kind: "ok" as const }),
     markQueueSeen: () => ({ kind: "ok" as const }),
     markThreadOpened: () => ({ kind: "ok" as const }),
+    hideRepo: () => ({ kind: "ok" as const }),
+    showRepo: () => ({ kind: "ok" as const }),
+    ignorePr: () => ({ kind: "ok" as const }),
+    unignorePr: () => ({ kind: "ok" as const }),
+    getViewerTeams: () => ({ kind: "ok" as const, teams: [] }),
+    setTeammatesTeam: () => ({ kind: "ok" as const }),
+    getReviewInstructions: () => ({ instructions: DEFAULT_REVIEW_INSTRUCTIONS, isDefault: true }),
+    setReviewInstructions: () => ({ kind: "ok" as const }),
+    getActivity: () => ({ kind: "loading" as const }),
+    refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
+    markActivityRead: () => ({ kind: "ok" as const }),
+    markActivityPrRead: () => ({ kind: "ok" as const }),
+    markAllActivityRead: () => ({ kind: "ok" as const }),
+    setActivityMuted: () => ({ kind: "ok" as const }),
     ...rpc,
+  };
+}
+
+export function activityItem(overrides: Partial<ActivityViewItem> = {}): ActivityViewItem {
+  return {
+    id: "C1",
+    repo: "acme/api",
+    number: 7,
+    kind: "comment",
+    team: null,
+    actor: "bob",
+    actorAvatarUrl: null,
+    snippet: "Why a retry here?",
+    at: new Date(Date.now() - 3_600_000).toISOString(),
+    url: "https://github.com/acme/api/pull/7#issuecomment-1",
+    place: "conversation",
+    read: false,
+    ...overrides,
+  };
+}
+
+export function activityPr(items: ActivityViewItem[], overrides: Partial<ActivityViewPr> = {}) {
+  return {
+    repo: "acme/api",
+    number: 7,
+    title: "Add retries",
+    url: "https://github.com/acme/api/pull/7",
+    state: "open" as const,
+    mine: true,
+    items,
+    unread: items.filter((item) => !item.read).length,
+    ...overrides,
+  };
+}
+
+export function activityOk(prs: ActivityViewPr[], muted: string[] = []): LoadedActivity {
+  return {
+    kind: "ok",
+    prs,
+    unread: prs.reduce((sum, pr) => sum + pr.unread, 0),
+    muted,
+    loadedAt: Date.parse("2026-10-02T09:30:00Z"),
   };
 }

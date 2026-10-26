@@ -28,6 +28,7 @@ import { useCommandIntent } from "./command-intents";
 import { CommentDraftsProvider, useNewComments } from "./comment-drafts";
 import { Notice, RefreshButton, RefreshError, SendToAgentButton } from "./feedback";
 import { PrFileDiff } from "./file-diff";
+import { isPrSubject } from "../core/pr-subject";
 import type { FilesJumpRequest } from "./files-jump";
 import { IconTooltip } from "./icon-tooltip";
 import { JumpMarkContext } from "./jump-highlight";
@@ -346,7 +347,7 @@ function ReviewContent({
           )}
           <ShowResolvedSwitch checked={showResolved} onChange={setShowResolved} />
           <SubmitReviewToggle open={submitOpen} toggle={() => setSubmitOpen((open) => !open)} />
-          {selectedIds.length > 0 && (
+          {selectedIds.length > 0 && !isPrSubject(threadId) && (
             <SendToAgentButton
               count={selectedIds.length}
               sending={agent.sending}

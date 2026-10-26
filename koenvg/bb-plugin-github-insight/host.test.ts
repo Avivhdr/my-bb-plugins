@@ -86,7 +86,10 @@ describe("fetchReviewQueue", () => {
     const context = { signal: new AbortController().signal } as Parameters<
       typeof host.handlers.fetchReviewQueue
     >[1];
-    return host.handlers.fetchReviewQueue({ tracked: tracked(count) }, context);
+    return host.handlers.fetchReviewQueue(
+      { layerQueries: ["is:pr"], tracked: tracked(count) },
+      context,
+    );
   }
 
   it("asks GitHub in one request per 8 tracked PRs", async () => {

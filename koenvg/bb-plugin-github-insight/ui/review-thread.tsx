@@ -4,6 +4,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "../core/relative-time";
 import type { ReviewComment, ReviewThread } from "../core/review-threads";
+import { Avatar } from "./avatar";
 import { JUMPED_RING, PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON, TEXTAREA } from "./controls";
 import { useJumpHighlight } from "./jump-highlight";
 import { useNewComment, useThreadHasNewComment } from "./new-comment-glow";
@@ -142,28 +143,6 @@ function CommentView({ comment, trailing }: { comment: ReviewComment; trailing: 
         <Markdown content={comment.body} />
       </div>
     </div>
-  );
-}
-
-function Avatar({ login, url }: { login: string; url: string | null }) {
-  const [failed, setFailed] = useState(false);
-  if (url === null || failed) {
-    return (
-      <span
-        aria-hidden
-        className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold uppercase text-muted-foreground"
-      >
-        {login.slice(0, 1)}
-      </span>
-    );
-  }
-  return (
-    <img
-      src={url}
-      alt=""
-      className="size-5 shrink-0 rounded-full bg-muted ring-1 ring-border"
-      onError={() => setFailed(true)}
-    />
   );
 }
 

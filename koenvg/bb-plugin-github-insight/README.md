@@ -1,6 +1,6 @@
 # bb-plugin-github-insight
 
-Shows a thread's pull request in a **PR** tab in the thread's right panel. The tab has two sub-tabs. **Overview** shows the merge blockers, reviewers, checks, and the PR conversation, and lets you add a PR comment. **Files** shows the PR's diff from GitHub, with the review threads on their lines. A **Pull Requests** nav panel lists the PRs that wait for your review or were requested from your teams in "Needs review" and "Reviewed", starts a hidden review thread for a PR, and keeps a PR reviewed until its author pushes.
+Shows a thread's pull request in a **PR** tab in the thread's right panel. The tab has two sub-tabs. **Overview** shows the merge blockers, reviewers, checks, and the PR conversation, and lets you add a PR comment. **Files** shows the PR's diff from GitHub, with the review threads on their lines. A **Pull Requests** nav panel lists the open PRs that wait for your review in three layers, Direct, Teammates, and Team, with Reviewed, Merged, and Ignored below them. It starts a hidden review thread for a PR, and keeps a PR reviewed until its author pushes.
 
 ## PR tab
 
@@ -63,9 +63,8 @@ app (PR tab) --getInsight/refresh--> server --fetchOverviewPage--> host (gh api 
 
 ```
 review-queue service --fetchReviewQueue--> primary host (gh api graphql)
-      |  --fetchViewerTeams / fetchTeamPrPage--> primary host (team PR scan)
       |  (at start, every 5 minutes, and on refreshReviewQueue)
-      +--> kv "team-prs"
+      |  <-- kv "review-filters" (layers, hidden repos, skip labels)
       +--> kv "review-queue" --getReviewQueue--> app (Pull Requests panel)
       +--> review-queue.updated -------------------^
 
@@ -74,42 +73,78 @@ app --archiveReview--> server --> bb.sdk.threads.archive
 app --getPrInsight / refreshPrInsight--> server --fetchOverviewPage--> primary host
 app --markReviewed / markNeedsReview--> server --> kv "reviewed:<owner/repo#n>"
 app --markQueueSeen--> server --> kv "review-seen"
+app --hideRepo / showRepo--> server --> kv "review-filters", then a load
+app --ignorePr / unignorePr--> server --> kv "review-ignored"
+app --getViewerTeams--> server --fetchViewerTeams--> primary host (gh api user/teams)
+app --setTeammatesTeam--> server --> kv "review-filters", then a load
 thread.idle / thread.failed --> server --> kv "review-returned:<threadId>"
 thread.active --> server --> re-link (linked threads only)
 composer banner --markThreadOpened--> server --> deletes "review-returned:<threadId>"
 ```
 
-- One `gh api graphql` call per load (`github/review-queue-query.ts`). It has one search, `is:pr is:open review-requested:@me` (first 50 results, also requests to your teams), and one `repository { pullRequest }` lookup per tracked PR, with recent comments, reviews, and review requests (see "Reviewed state"). Tracked PRs are the PRs with a reviewed mark, the PRs of unarchived review threads, and team PRs.
+- One `gh api graphql` call per load (`github/review-queue-query.ts`). It has one search per layer (first 50 results each), and one `repository { pullRequest }` lookup per tracked PR, with recent comments, reviews, and review requests (see "Reviewed state"). Tracked PRs are the PRs with a reviewed mark and the PRs of unarchived review threads. The layer queries go in as GraphQL variables, so a quoted label in a query needs no escaping.
 - GitHub returns `null` and a `NOT_FOUND` error for a tracked PR or repository that does not exist, and `gh` then exits non-zero. The host keeps the response when every error is `NOT_FOUND` (`github/not-found-partial.ts`). Other errors fail the load.
-- Team PRs. The search above matches only pending requests, so a team request drops out once a teammate reviews, and merged PRs never match. After the first query, each load scans for PRs that ever requested a review from you or one of your teams (`core/team-prs.ts`, `github/team-prs-query.ts`). Your teams come from `gh api user/teams`. The scanned repos are the repos of the review requests and of the stored team PRs. Per repo, `search(is:pr repo:<repo> updated:>=<since> sort:updated-asc)` reads the `REVIEW_REQUESTED_EVENT` items of each PR, 100 PRs per page, at most 10 pages. A team matches by `combinedSlug`, any case. PRs found that are not tracked yet are fetched in one more tracked query.
-- The kv entry `team-prs` (`{ v: 1, refs, scannedThrough }`, `queue/team-prs.ts`) keeps the team PRs and, per repo, the time the last good scan started. The next scan starts 10 minutes before that time. A repo with no time starts 7 days back. A scan that stops at 10 pages keeps the update time of its last PR. A failed scan logs a warning, keeps the stored times, and the load goes on with the stored team PRs.
-- The list holds each PR once: requested PRs, marked PRs, team PRs, and PRs with a review thread. A tracked PR that is merged or closed stays for 7 days after it closed, with a "Merged" or "Closed" label. After that, or when it is missing, it leaves the list, its mark is deleted, and it leaves `team-prs`. When GitHub reports more than 50 requests, "Needs review" shows "Showing first 50".
-- Each section groups its PRs by repo. Repo groups with a PR whose thread needs you or came back come first, then the other groups by name. In a group, those PRs come first, then by last update, newest first.
+- Layers (`core/review-filters.ts`). The kv entry `review-filters` (`{ v: 2, filters }`, `queue/review-filters.ts`) holds the layers, each `{ name, query, excludeRepos, teammates }`, a global `excludeRepos`, `skipLabels`, and `teammatesTeam`. With no entry, the defaults apply:
+  - Direct: `is:pr is:open draft:false archived:false user-review-requested:@me`.
+  - Teammates: `is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me`, only PRs written by a member of `teammatesTeam`.
+  - Team: the same search, only PRs written by anyone else.
+  - `skipLabels`: `["DO NOT REVIEW"]`. `teammatesTeam`: none.
+- A version 1 entry (Direct and Team only) reads as the defaults with its hidden repos and skip labels kept.
+- Teammates. The "Pick your team" button above the layers lists your teams (`gh api user/teams`) and saves the one you pick as `teammatesTeam` (`org/slug`). Each load reads that team's members (`gh api orgs/<org>/teams/<slug>/members`, `core/teams.ts`) next to the searches. A login matches in any case. A PR from a deleted user goes to Team. GitHub search has no "author is in team" qualifier, and one `author:` per member makes the query too long for a team of 39, so the split happens after the search. Teammates and Team send one search between them while they hide the same repos. With no team picked, Teammates asks you to pick one and Team holds every team request. When the members cannot be read, Team holds every team request and Teammates shows the reason.
+- Each hidden repo goes into the layer's query as `-repo:<owner/name>`, so it does not use up the 50 results. A PR found by two layers shows once, in the first. A layer cut at 50 shows "Showing first 50".
+- A PR with a skip label (any case) stays in its layer, last in its repo group, dimmed, with the label shown. It does not count toward the layer or the badge.
+- Below the layers:
+  - Reviewed: open PRs that you marked reviewed and that have no new commits or activity, and open tracked PRs that no layer lists any more, for example after you submitted a review on github.com.
+  - Merged: tracked PRs that are merged or closed, with a "Merged" or "Closed" label. One with an unarchived review thread stays until you archive the thread, so its agent and drafts stay one click away. One with only a mark stays for 7 days after it closed, then leaves the list and its mark is deleted.
+  - Ignored: open PRs you ignored. The kv entry `review-ignored` (`{ v: 1, keys }`) holds them. An ignored PR is forgotten once no layer lists it and no layer was cut at 50. An ignored PR that merges goes to Merged.
+- A missing tracked PR leaves the list and its mark is deleted.
+- Each section groups its PRs by repo. Repo groups with a PR whose thread needs you or came back come first, then the group with the oldest PR, then by name. In a group, PRs with a skip label go last and those whose thread needs you come first; the rest go oldest first, by the time the PR opened.
+- Earlier versions scanned team PRs into the kv entry `team-prs`. The service deletes that entry when it starts.
 - The `review-queue` background service loads at start and then every 5 minutes, also while the panel is closed. Only one load runs at a time. A Refresh during a load waits for it and then starts one more.
-- After each load, the service writes the result to the kv entry `review-queue` (`{ v: 5, result }`) and publishes it on `review-queue.updated`. A failed load keeps the last good lists in the entry. The entry stays after a bb restart. An entry of another version reads as no entry.
+- After each load, the service writes the result to the kv entry `review-queue` (`{ v: 6, result }`) and publishes it on `review-queue.updated`. A failed load keeps the last good lists in the entry. The entry stays after a bb restart. An entry of another version reads as no entry.
 - `getReviewQueue` returns the stored result at once and never waits for GitHub. Before the first load, it returns `loading`, and the panel shows "Loading pull requests…" until the first result is published.
 - The panel reads the stored result when it opens and shows each published result. It has no timer of its own. Refresh calls `refreshReviewQueue`, which loads at once. The old lists stay visible until the new result arrives.
 - `startReview`, `archiveReview`, `markReviewed`, `markNeedsReview`, `markQueueSeen`, `markThreadOpened`, a review thread's `thread.idle` or `thread.failed`, and `thread.active`, `thread.idle`, or `thread.failed` of a thread linked in the stored list build the thread links and the reviewed state again from the stored GitHub data, with no `gh` call, then store and publish the result. A mark on a PR that is not in the stored data starts a load.
 - A failed load shows the reason and "Retry". The last good lists stay visible with their load time. With no primary host, the panel shows "No host available".
 - A PR matches a bb project when the project's git remote points to the PR repo (HTTPS or SSH, any case, with or without `.git`). Personal projects do not match. The first project is the most recently updated one.
-- The repo name and the "No bb project for this repository" hint show once, on the group header. A card shows the number, title, and time since the last update, then one row with the author, CI state, review decision, Merged or Closed (else Draft), and the actions. The review decision shows only Approved or Changes requested.
-- A card shows a status button (Running, Needs you, Ready, Failed, or Waiting) that opens the thread when an unarchived thread, hidden or visible, is linked to the PR (most recently updated first). A thread is linked when bb links its branch to the PR, or when it has the `review-pr` metadata of that PR. Else a PR in a repo with a bb project shows "Start review". Every card has "Archive thread", but it works only for a review thread; otherwise it is disabled and its tooltip says "Only review threads can be archived". Every card has "Mark reviewed" or "Mark as needs review", and a GitHub icon that shows the PR overview (see "PR overview"). In a wide panel, the status buttons line up on the right, next to the 3 icon buttons, which keep the same place on every card.
-- The "Needs review" header shows a chip with a count for each thread status other than Waiting that has at least one PR. A click on a chip shows only the PRs with that status. A second click shows all PRs again. When the last PR with the chosen status changes, the chip stays with 0 and the list says "No pull requests match this filter" and offers "Show all". The header count stays the total.
+- The repo name and the "No bb project for this repository" hint show once, on the group header. Each PR is one row: the CI mark, the number, the title (cut to fit, full text on hover), the skip label, Merged or Closed (else Draft), the activity labels, the review decision, the author's GitHub avatar (the login on hover, its first letter when the image fails), and the time since the PR opened. In a narrow panel the review decision drops out. The review decision shows only Approved or Changes requested.
+- A card shows a status button (Running, Needs you, Ready, Failed, or Waiting) that opens the thread when an unarchived thread, hidden or visible, is linked to the PR (most recently updated first). A thread is linked when bb links its branch to the PR, or when it has the `review-pr` metadata of that PR. Else a PR in a repo with a bb project shows "Start review". The "More actions" button ("…") at the end of each row has "Open in GitHub" (first, it opens the PR with bb's browser preference), "Mark reviewed" or "Mark as needs review", "Ignore" on an open PR ("Stop ignoring" in Ignored), and "Archive thread" on a PR with a review thread. While an action runs, the button shows a spinner and is disabled. A click anywhere else on the row shows the PR overview (see "PR overview").
+- An empty layer is left out, except Teammates while no team is picked or its members could not be read. With every layer empty, the list says "Nothing to review". Reviewed, Merged, and Ignored are left out while empty.
+- The "…" button on a repo group header of a layer has "Hide from <layer>" and "Hide everywhere". Hiding takes the repo's PRs out at once and starts a load. The row above the layers shows "N hidden" when any repo is hidden. Its menu lists them under "Hidden from <layer>" and "Hidden everywhere", each with "Show <repo> again". Showing a repo hidden everywhere also shows it in every layer.
+- The row above the layers holds the team picker, "N hidden", Refresh, "Updated <time> ago", and a chip with a count for each thread status other than Waiting that has at least one PR in a layer. A click on a chip shows only the layer PRs with that status. A second click shows all PRs again. When the last PR with the chosen status changes, the chip stays with 0 and the layer says "No pull requests match this filter" and offers "Show all". The layer counts stay the totals.
 
 ### PR overview
 
-- The GitHub icon on a card opens the PR overview in a side panel, on every card, also when the PR has no thread. It does not open the website. The route `pr/<owner>/<repo>/<number>` holds the open PR, so the host keeps it across navigation. The card of the open PR is marked, and its icon says "Hide overview" and closes the panel. The close button in the panel header goes back to the list too.
+- A click on a row opens the PR overview in a side panel, also when the PR has no thread. It does not open the website. The route `pr/<owner>/<repo>/<number>` holds the open PR, so the host keeps it across navigation. The row of the open PR is marked, and a second click closes the panel. The close button in the panel header goes back to the list too.
 - In a panel of at least 768px, the list stays on the left and the overview is a column on the right, 440px wide by default. Drag its left edge, or focus the edge and use the arrow keys (10px per press, Left grows), to set a width from 360px to 960px. The list always keeps at least 360px. Double-click the edge to go back to 440px. "Maximize overview" in the panel header fills the whole panel with the overview and hides the list; "Restore overview" brings the list back. In a narrower panel, the overview replaces the list until you close it, with no resize edge or maximize button.
 - `ui/use-overview-layout.ts` saves the width and the maximized state as one `{ width, maximized }` value in localStorage (`bb-github-insight:overview-layout`), so the panel opens the same way next time.
-- The overview shows the same header, branch, merge verdict, blockers, reviewers, checks, and data age as the Overview sub-tab, and "GitHub" opens the PR on GitHub. It has no merge, auto-merge, or branch update buttons, no "Open in Files", and no conversation, because those need a thread.
-- `getPrInsight` reads the PR through bb's primary host and uses the same cache as the PR tab, keyed by `<owner>/<repo>#<number>`. A reading from a thread serves the panel, and the other way round. When the reading is older than 60 seconds or comes from kv storage, it returns it at once and reads GitHub again in the background. Then `insight.updated` with the PR key makes the panel load again. Refresh calls `refreshPrInsight`, which reads GitHub at once. A failed refresh keeps the last overview with the error. While rate limited, it returns the cached reading or "rate limited" without a GitHub call. With no primary host, it returns "No host to read GitHub from".
-- A reading for a PR without a thread writes no `prSummary`. Its kv entry is deleted by the next poll, like any entry that no thread links.
+- The side panel is the PR tab itself (`PrView` in `ui/pr-panel.tsx`): the Overview sub-tab with the merge status and the conversation, and the Files sub-tab with the diff, review threads, replies, drafts, and Submit review. "Send to agent" is left out, since there is no thread.
+- PR subject ids (`core/pr-subject.ts`). The PR views take a thread id. The side panel passes `pr:<owner>/<repo>#<number>` in its place. On the server, `resolveSubject` in `server.ts` reads that PR through the primary host, so every thread RPC of the PR tab works for it unchanged: `getInsight`, `refresh`, `getTimeline`, `addPrComment`, `getReview`, `getDrafts`, `reply`, `setResolved`, `submitReview`, and the merge actions. With no primary host it returns "No host to read GitHub from". A subject id writes no `prSummary`, has no local commits (`localCommitsAhead` is unknown), and cannot send to an agent. Drafts and viewed marks are kept under the subject id.
+- `insight.updated` reaches a subject id through the PR key (`mentionsThread` in `core/insight-updated.ts`).
+- The route can name a comment: `pr/<owner>/<repo>/<number>/conversation/<id>` opens Overview and scrolls to that PR comment or review, and `.../inline/<id>` opens Files at that review comment. The comment rings for 1.5 s.
+
+### Activity
+
+- The "Activity" tab (route `activity`) lists comments, replies, and mentions that need you, grouped by PR, newest first. It does not use the review layers, hidden repos, or ignored PRs, so a mention on a hidden or ignored PR still shows.
+- The `activity` background service (`queue/activity-service.ts`) polls every 60 seconds. It reads `gh api notifications?participating=true&all=true&since=<3 days ago>` (pull requests only, `core/activity.ts`), then reads each PR whose notification `updated_at` changed with one GraphQL request per 8 PRs (`github/activity-query.ts`): the last 50 comments, the last 50 reviews, and the last 50 review threads with their comments.
+- The rules come from Beacon's classifier (`classifyPr`):
+  - An `@you` or `@org/team` mention of one of your teams counts. A mention inside a Markdown quote does not.
+  - A new comment in an inline thread you wrote in is a reply.
+  - On your PR: comments, change requests, and reviews or approvals with text count. A bare approval does not.
+  - On someone else's PR: activity counts only after your first comment there, and a comment that mentions other people is addressed to them.
+  - Bots (`__typename` Bot or a login ending in `[bot]`), your own activity, and activity older than 3 days never count.
+- Each item shows the person's avatar, what happened ("commented", "replied", "mentioned you", "requested changes", "approved", "reviewed"), a one-line snippet, and its age. Unread items have a dot. "Show N read" brings back read items. The open PR keeps its read items.
+- A click on an item opens its PR in the side panel at that comment and marks the item read. A click on a PR header opens the PR. Each item's "…" menu has "Open in GitHub", "Mark read", and "Mute <login>". Each PR's menu has "Open in GitHub" and "Mark all read". "Mark all read" above the list reads everything.
+- "Mute" leaves out a person's activity, for example a CI account that GitHub reports as a user. "N muted" lists them with "Unmute".
+- Read state follows GitHub both ways. A notification you read on github.com marks the items up to its `last_read_at` read here. When nothing on a PR is unread here, the plugin marks its GitHub notification read (`PATCH notifications/threads/<id>`).
+- The kv entry `activity` (`{ v: 1, prs, read, muted, result }`) keeps the items per PR, the read ids, the muted logins, and the last result. Each load and each mark publishes the result on `activity.updated`. A failed load keeps the last good feed with the error. Items leave once they are older than 3 days.
+- The Activity tab shows the unread count. The rail icon and the sidebar row show a dot while anything is unread, next to the review count. Unread activity does not add to the review count.
 
 ### Sidebar badge
 
-- The Pull Requests sidebar row shows the "Needs review" count (`ui/pr-sidebar-badge.tsx`), or `50+` when the list is truncated. It is hidden before the first load and at 0. It follows `review-queue.updated`, so it changes while the panel is closed. A failed load keeps the last good count.
-- The count is a filled pill when "Needs review" holds a PR that is not in the kv entry `review-seen` (`{ v: 1, keys }`, keys `owner/repo#n` lowercase). New commits do not make a PR unseen.
-- When the panel shows the list with an unseen PR, it calls `markQueueSeen` with the PRs it renders. The server replaces `review-seen` with them. Each build of the lists also removes PRs that left "Needs review" from the set, so a later request counts as new.
+- The Pull Requests sidebar row shows the sum of the layer counts (`ui/pr-sidebar-badge.tsx`), with a `+` when a layer is cut at 50. Reviewed, Merged, Ignored, and skipped PRs do not count. It is hidden before the first load and at 0. It follows `review-queue.updated`, so it changes while the panel is closed. A failed load keeps the last good count.
+- The count is a filled pill when a layer holds a counted PR that is not in the kv entry `review-seen` (`{ v: 1, keys }`, keys `owner/repo#n` lowercase). New commits do not make a PR unseen.
+- When the panel shows the list with an unseen PR, it calls `markQueueSeen` with the PRs it renders. The server replaces `review-seen` with them. Each build of the lists also removes PRs that left the layers from the set, so a later request counts as new.
 - A dot shows when a review thread came back: its agent stopped (`thread.idle` or `thread.failed`), is still stopped, and the user has not opened it since, or it needs the user. The dot also shows without a count.
 - bb 0.46 shows the Pull Requests panel as a rail icon and does not mount the sidebar accessory. The `pr-rail-badge` app overlay (`ui/pr-rail-badge.tsx`) shows the same count and dot on the top-right corner of the icon. It finds the icon by its host DOM attribute `data-nav-rail-item="github-insight/pull-requests"`, so a bb upgrade can break it.
 - A stopped review thread writes the kv entry `review-returned:<threadId>` (`queue/returned-threads.ts`). Other threads are ignored. The composer banner of every opened thread calls `markThreadOpened`. The server deletes the entry, or does nothing when there is none. When the agent stops while the thread is open, the banner sees it in the next `review-queue.updated` and calls again. A thread that needs the user stays returned until answered. Entries of archived or deleted threads are deleted after the next build. A failed metadata read keeps the entry.
@@ -118,17 +153,25 @@ composer banner --markThreadOpened--> server --> deletes "review-returned:<threa
 ### Reviewed state
 
 - "Mark reviewed" writes the kv entry `reviewed:<owner/repo#n>` (lowercase): `{ v: 1, owner, repo, number, headOid, markedAt }` (`queue/reviewed-marks.ts`). `headOid` is the head commit that the card shows.
-- `core/review-state.ts` compares the mark with the current head: no mark is "Needs review", the same commit is "Reviewed", another commit is "Needs review" with "New commits". A push or force push changes the head, so the PR comes back by itself.
-- "Reviewed" is collapsed when the panel opens. "Mark as needs review" deletes the mark. A PR with no request and no review thread then leaves the list.
+- `core/review-state.ts` compares the mark with the current head: no mark is "Needs review", the same commit is "Reviewed", another commit is "Needs review" with "New commits". A push or force push changes the head, so a PR that a layer still lists goes back to its layer by itself. A PR that no layer lists stays in Reviewed with the "New commits" label.
+- "Reviewed" is collapsed when the panel opens. "Mark as needs review" deletes the mark. A PR that no layer lists and that has no review thread then leaves the list.
 - A successful submit in the Files sub-tab marks the PR reviewed at the submitted commit, except on your own PR. When the mark cannot be saved, the submit panel says to use "Mark reviewed".
-- A marked PR also comes back to "Needs review" on activity after `markedAt`. The tracked PR lookups fetch the last 10 PR comments, the last 10 reviews, the last 10 review requests, and `viewer { login }` (`QueueActivity` fragment). The host asks for 8 tracked PRs per GraphQL request, in parallel, because GitHub stops a request after about 10 seconds with `HTTP 504`. It sends a request again once after `HTTP 504` or a cut-off response. `core/review-queue.ts` keeps each comment with its `id` and time, and the newest review request time:
+- A marked PR also comes back on activity after `markedAt`: to its layer when a layer lists it, else it stays in Reviewed with the label. The tracked PR lookups fetch the last 10 PR comments, the last 10 reviews, the last 10 review requests, and `viewer { login }` (`QueueActivity` fragment). The host asks for 8 tracked PRs per GraphQL request, in parallel, because GitHub stops a request after about 10 seconds with `HTTP 504`. It sends a request again once after `HTTP 504` or a cut-off response. `core/review-queue.ts` keeps each comment with its `id` and time, and the newest review request time:
   - "New comments": a PR comment, a review comment or reply, or a review with text, from a `User` that is not you. Bots, your own activity, deleted users, and approvals with no text and no comments do not count. A reply on github.com is a review with no body and one comment, so it counts.
   - A comment that you saw does not count (see "New comments"). A review comment or reply is seen in the Files sub-tab. A PR comment or review text is seen in the Overview Conversation timeline. The seen key of a review text is the review `id`.
   - The fragment reads the first 10 comments of each of the last 10 reviews, with `id` and `publishedAt`. A comment in a pending review counts at the time the review is submitted.
   - "Review requested again": a review request to your login. Requests to a team do not count.
 - "Mark reviewed" writes a new `markedAt`, so it clears both labels. "Mark reviewed" and "Mark as needs review" also delete the seen comments of the PR. PRs with no mark get no activity labels, also when they have a review thread.
 - Reviews submitted on github.com do not set a mark.
-- "Start review" opens the new-thread composer on `review/<owner>/<repo>/<number>`, filled in with the first matching project, a new worktree on the primary host from the default branch, and the prompt from `core/review-prompt.ts`. The composer shows after the plugin gets the primary host ID, because bb ignores a worktree seed without a host. With no primary host, the composer uses its own environment default. The prompt tells the agent to run `gh pr checkout <n>`, review the PR, save each finding with `review comment` and one summary with `review summary` (see "Review drafts"), and not post to GitHub. Submit starts the thread and opens it. A review thread starts only in an environment that no other thread can share. The project checkout, a personal workspace, an existing environment, and the project default are rejected with "Review threads need a new worktree". After the checkout, bb links the PR to the thread, and the PR tab shows it.
+- "Start review" opens the new-thread composer on `review/<owner>/<repo>/<number>`, filled in with the first matching project, a new worktree on the primary host from the default branch, and the prompt from `core/review-prompt.ts`. The "How to review" part of that prompt is yours to edit (see "Review prompt"). The composer shows after the plugin gets the primary host ID, because bb ignores a worktree seed without a host. With no primary host, the composer uses its own environment default. The prompt tells the agent to run `gh pr checkout <n>`, review the PR, save each finding with `review comment` and one summary with `review summary` (see "Review drafts"), and not post to GitHub. Submit starts the thread and opens it. A review thread starts only in an environment that no other thread can share. The project checkout, a personal workspace, an existing environment, and the project default are rejected with "Review threads need a new worktree". After the checkout, bb links the PR to the thread, and the PR tab shows it.
+
+### Review prompt
+
+- The plugin's page in bb Settings has a "Review prompt" section (`ui/review-prompt-settings.tsx`). Its text box holds the "How to review" part of the prompt that Start review fills in. The default is "Read the PR description and the diff against its base branch." and "Review the change for correctness, design, tests, and readability."
+- `{number}`, `{title}`, `{url}`, and `{repo}` in the text are replaced with the PR's values. Other braces stay as they are.
+- The plugin always adds the rest: `gh pr checkout <n>`, the `bb github-insight review comment`, `summary`, and `list` steps, and the rule against posting to GitHub. The Files sub-tab only shows drafts saved with those commands, so they are not editable.
+- Save writes the trimmed text to the kv entry `review-instructions` (`{ v: 1, instructions }`, `review/review-instructions.ts`). Empty text cannot be saved. "Reset to default" deletes the entry. "Preview the full prompt" shows the prompt for a sample PR with the text in the box.
+- The composer reads the saved text when it opens (RPC `getReviewInstructions`). A failed read uses the default. Text you change in the composer applies to that one thread.
 
 ### Hidden review threads
 
@@ -142,17 +185,20 @@ composer banner --markThreadOpened--> server --> deletes "review-returned:<threa
 
 1. Run `gh auth status` on the primary host. It must show a logged-in user.
 2. Install the plugin (see "Develop") and open **Pull Requests** in the bb sidebar.
-3. "Needs review" shows the PRs of `https://github.com/pulls/review-requested`, plus the PRs of the last 7 days in those repos that requested your team, also merged ones with "Merged". Its header row shows Refresh and "Updated <time> ago".
+3. Direct shows the open, non-draft PRs that request your review by name. Team shows the ones that request one of your teams. No merged PR shows in either. The row above them shows Refresh and "Updated <time> ago".
 4. On a review request in a repo that has a bb project, select "Start review". The composer shows that project, a new worktree, and the review prompt. Submit it.
 5. bb opens the new thread. It is not in the sidebar thread list. The agent runs `gh pr checkout <n>`. Then the PR tab shows that PR.
 6. Go back to **Pull Requests**. The card shows the thread status button.
-7. Select "Mark reviewed" on the card. The PR moves to "Reviewed". Select "Mark as needs review" to move it back.
-8. Select "Archive thread" on the card. bb archives the thread, and the card shows "Start review" again.
-9. On a card without a thread, select the GitHub icon. The overview of that PR opens next to the list, with its merge verdict, reviewers, and checks. Select it again, or the close button, to go back to the list.
-10. Run `gh auth logout` on the primary host and select Refresh. The panel shows "gh not logged in", "Retry", and the last lists with their load time. Log in again and select "Retry".
-11. Restart bb and open **Pull Requests** at once. The panel shows the lists from before the restart.
-12. With the panel closed, wait for a new review request. The sidebar count becomes a pill. Open the panel. The pill goes back to a plain count.
-13. Start a review thread and leave the panel. When the agent finishes, a dot shows next to the count within seconds. Open **Pull Requests**. The card shows "Ready". Select the status button. The dot goes away.
+7. Select "…" on the row, then "Mark reviewed". The PR moves to "Reviewed". Select "Mark as needs review" to move it back.
+8. Select "…" on the row, then "Ignore". The PR moves to Ignored and the sidebar count drops by one. Open Ignored and select "Stop ignoring" to move it back.
+9. Select "Pick your team" above the layers and pick your team. After the load, Teammates holds the team requests written by its members, and Team holds the rest.
+10. Select "…" on a repo group header in Team, then "Hide from Team". The repo's PRs leave Team and "1 hidden" shows above the layers. Select it, then "Show <repo> again".
+11. Select "…" on the row, then "Archive thread". bb archives the thread, and the card shows "Start review" again.
+12. Click a row without a thread. The overview of that PR opens next to the list, with its merge verdict, reviewers, and checks. Click the row again, or the close button, to go back to the list.
+13. Run `gh auth logout` on the primary host and select Refresh. The panel shows "gh not logged in", "Retry", and the last lists with their load time. Log in again and select "Retry".
+14. Restart bb and open **Pull Requests** at once. The panel shows the lists from before the restart.
+15. With the panel closed, wait for a new review request. The sidebar count becomes a pill. Open the panel. The pill goes back to a plain count.
+16. Start a review thread and leave the panel. When the agent finishes, a dot shows next to the count within seconds. Open **Pull Requests**. The card shows "Ready". Select the status button. The dot goes away.
 
 ## PR summary
 

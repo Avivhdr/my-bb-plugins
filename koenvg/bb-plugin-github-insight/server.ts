@@ -20,12 +20,17 @@ import { reviewPrMetadata } from "./core/review-pr";
 import { SUMMARY_METADATA_KEY } from "./core/summary";
 import { GhFailureError } from "./github/gh-failure";
 import { parseReviewQueue } from "./core/review-queue";
-import { scanTeamPrs } from "./core/team-prs";
+import { parseTeamMembers, parseViewerTeams } from "./core/teams";
+import { parseActivityDetails, parseNotifications } from "./core/activity";
+import { ACTIVITY_UPDATED_CHANNEL } from "./core/activity-view";
+import { createActivityService } from "./queue/activity-service";
 import { createLocalCommitsLookup } from "./merge/local-commits-lookup";
 import { createPrWrites } from "./merge/pr-writes";
-import { createPrLookup } from "./pr-lookup";
+import { createPrLookup, type LookupOptions, type PrResolution } from "./pr-lookup";
+import { isPrSubject, parsePrSubject } from "./core/pr-subject";
 import { createRateLimitPause } from "./github/rate-limit-pause";
 import { createReviewQueueService } from "./queue/review-queue-service";
+import { createReviewInstructionsStore } from "./review/review-instructions";
 import { createInsightService } from "./refresh/insight-service";
 import { createDraftStore } from "./review/draft-store";
 import { createReviewCli } from "./review/review-cli";
@@ -51,13 +56,22 @@ export default async function plugin(bb: BbPluginApi) {
     readRateLimitReset: async (hostId) =>
       (await host.call("readRateLimitReset", {}, { hostId })).resetAt,
   });
+  // The Pull Requests panel shows a PR without a thread under a PR subject id (core/pr-subject.ts).
+  const resolveSubject = async (id: string, options?: LookupOptions): Promise<PrResolution> => {
+    const ref = parsePrSubject(id);
+    if (ref === null) return resolvePr(id, options);
+    const hostId = await primaryHostId();
+    return hostId === null
+      ? { kind: "error", message: "No host to read GitHub from" }
+      : { kind: "pr", target: { ref, hostId, openOnBb: false } };
+  };
 
   const service = createInsightService({
     listThreads: async () =>
       (await bb.sdk.threads.list({ includeHidden: true })).filter(
         (thread) => thread.archivedAt === null,
       ),
-    resolvePr,
+    resolvePr: resolveSubject,
     resolveEnvironmentPr,
     fetchInsight: ({ ref, hostId }) =>
       collectInsight({
@@ -69,12 +83,14 @@ export default async function plugin(bb: BbPluginApi) {
     primaryHostId,
     publish: (update: InsightUpdated) => bb.realtime.publish(INSIGHT_UPDATED_CHANNEL, update),
     writeSummary: async (threadId, summary) => {
+      if (isPrSubject(threadId)) return;
       await bb.sdk.threads.updatePluginMetadata({
         threadId,
         set: { [SUMMARY_METADATA_KEY]: summary },
       });
     },
     removeSummary: async (threadId) => {
+      if (isPrSubject(threadId)) return;
       await bb.sdk.threads.updatePluginMetadata({ threadId, remove: [SUMMARY_METADATA_KEY] });
     },
     kv: bb.storage.kv,
@@ -91,7 +107,7 @@ export default async function plugin(bb: BbPluginApi) {
   const signMedia = createMediaSigner(Date.now);
 
   const review = createReviewService({
-    resolvePr,
+    resolvePr: resolveSubject,
     signMedia,
     now: Date.now,
     newDraftId: newCommentDraftId,
@@ -111,6 +127,7 @@ export default async function plugin(bb: BbPluginApi) {
     newCommentBasis: (pr) => reviewQueue.newCommentBasis(pr),
     markCommentsSeen: (pr, ids) => reviewQueue.markCommentsSeen(pr, ids),
     sendMessage: async (threadId, text) => {
+      if (isPrSubject(threadId)) throw new Error("This pull request has no thread to send to");
       const result = await bb.sdk.threads.send({
         threadId,
         mode: "auto",
@@ -121,7 +138,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   const writes = createReviewWrites({
-    resolvePr,
+    resolvePr: resolveSubject,
     replyToThread: async ({ hostId }, threadId, body) =>
       unwrap(await host.call("replyToThread", { threadId, body }, { hostId })),
     setThreadResolved: async ({ hostId }, threadId, resolved) =>
@@ -141,22 +158,42 @@ export default async function plugin(bb: BbPluginApi) {
     warn: (message) => bb.log.warn(message),
   });
 
+  const reviewInstructions = createReviewInstructionsStore(bb.storage.kv);
+
+  const activity = createActivityService({
+    primaryHostId,
+    fetchNotifications: async (hostId, since) =>
+      parseNotifications(unwrap(await host.call("fetchNotifications", { since }, { hostId }))),
+    fetchDetails: async (hostId, prs) =>
+      parseActivityDetails(
+        unwrap(await host.call("fetchActivityDetails", { prs }, { hostId })),
+        prs,
+      ),
+    listTeams: async (hostId) =>
+      parseViewerTeams(unwrap(await host.call("fetchViewerTeams", {}, { hostId }))).map(
+        ({ team }) => team,
+      ),
+    markNotificationRead: async (hostId, threadId) => {
+      unwrap(await host.call("markNotificationRead", { threadId }, { hostId }));
+    },
+    kv: bb.storage.kv,
+    publish: (result) => bb.realtime.publish(ACTIVITY_UPDATED_CHANNEL, result),
+    warn: (message) => bb.log.warn(message),
+    now: Date.now,
+  });
+
   const reviewQueue = createReviewQueueService({
     primaryHostId,
-    fetchReviewQueue: async (hostId, tracked) =>
+    fetchReviewQueue: async (hostId, layerQueries, tracked) =>
       parseReviewQueue(
-        unwrap(await host.call("fetchReviewQueue", { tracked }, { hostId })),
+        unwrap(await host.call("fetchReviewQueue", { layerQueries, tracked }, { hostId })),
+        layerQueries.length,
         tracked,
-        Date.now(),
       ),
-    scanTeamPrs: (hostId, request) =>
-      scanTeamPrs(
-        {
-          fetchViewerTeams: async () => unwrap(await host.call("fetchViewerTeams", {}, { hostId })),
-          fetchPage: async (page) => unwrap(await host.call("fetchTeamPrPage", page, { hostId })),
-        },
-        request,
-      ),
+    fetchTeamMembers: async (hostId, team) =>
+      parseTeamMembers(unwrap(await host.call("fetchTeamMembers", { team }, { hostId }))),
+    listViewerTeams: async (hostId) =>
+      parseViewerTeams(unwrap(await host.call("fetchViewerTeams", {}, { hostId }))),
     listProjects: () => bb.sdk.projects.list(),
     listThreads: () => bb.sdk.threads.list({ includeHidden: true }),
     listReviewThreads: () =>
@@ -209,7 +246,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   const timeline = createTimelineService({
-    resolvePr,
+    resolvePr: resolveSubject,
     fetchTimelinePage: async ({ ref, hostId }, before) =>
       unwrap(await host.call("fetchTimeline", { ...ref, before }, { hostId })),
     addComment: async ({ hostId }, request) =>
@@ -264,8 +301,25 @@ export default async function plugin(bb: BbPluginApi) {
     markNeedsReview: (request) => reviewQueue.markNeedsReview(request),
     markQueueSeen: (request) => reviewQueue.markQueueSeen(request),
     markThreadOpened: (request) => reviewQueue.markThreadOpened(request),
+    hideRepo: (request) => reviewQueue.hideRepo(request),
+    showRepo: (request) => reviewQueue.showRepo(request),
+    ignorePr: (request) => reviewQueue.ignorePr(request),
+    unignorePr: (request) => reviewQueue.unignorePr(request),
+    getViewerTeams: () => reviewQueue.getViewerTeams(),
+    setTeammatesTeam: (request) => reviewQueue.setTeammatesTeam(request),
+    getReviewInstructions: () => reviewInstructions.get(),
+    getActivity: () => activity.getActivity(),
+    refreshActivity: () => activity.refreshActivity(),
+    markActivityRead: ({ ids }) => activity.markRead(ids),
+    markActivityPrRead: (request) => activity.markPrRead(request),
+    markAllActivityRead: () => activity.markAllRead(),
+    setActivityMuted: ({ login, muted }) => activity.setMuted(login, muted),
+    setReviewInstructions: ({ instructions }) => reviewInstructions.set(instructions),
     runPrAction: (request) => prWrites.runPrAction(request),
-    localCommitsAhead: ({ threadId }) => localCommits.localCommitsAhead(threadId),
+    localCommitsAhead: async ({ threadId }) =>
+      isPrSubject(threadId)
+        ? { kind: "unknown" as const }
+        : localCommits.localCommitsAhead(threadId),
   });
 
   bb.cli.register(
@@ -277,6 +331,7 @@ export default async function plugin(bb: BbPluginApi) {
   );
 
   bb.background.service("pr-poller", { start: (signal) => service.run(signal) });
+  bb.background.service("activity", { start: (signal) => activity.run(signal) });
   bb.background.service("review-queue", { start: (signal) => reviewQueue.run(signal) });
 
   const unloaded = new AbortController();

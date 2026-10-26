@@ -28,12 +28,22 @@ import { loadedReviewQueueSchema, reviewQueueResultSchema } from "./core/review-
 import { threadPlacementSchema } from "./core/thread-placement";
 import { prDescriptionSchema, timelineEventSchema } from "./core/timeline";
 import { ghFailureSchema } from "./github/gh-failure";
+import { activityResultSchema, loadedActivitySchema } from "./core/activity-view";
+import { teamSchema } from "./core/teams";
 
+export type {
+  ActivityResult,
+  ActivityView,
+  ActivityViewItem,
+  ActivityViewPr,
+  LoadedActivity,
+} from "./core/activity-view";
 export type {
   LinkedQueuePr,
   LinkedThread,
   LoadedReviewQueue,
   NewActivity,
+  QueueLayer,
   QueueSection,
   ReviewQueueResult,
   ReviewQueueView,
@@ -54,15 +64,6 @@ const timelinePageRequestSchema = z
   .object({ ...prRequestFields, before: z.string().nullable() })
   .strict();
 export type TimelinePageRequest = z.infer<typeof timelinePageRequestSchema>;
-
-const teamPrPageRequestSchema = z
-  .object({
-    repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
-    since: z.string().datetime(),
-    after: z.string().nullable(),
-  })
-  .strict();
-export type TeamPrPageRequest = z.infer<typeof teamPrPageRequestSchema>;
 
 const addCommentRequestSchema = z
   .object({ subjectId: z.string().min(1), body: z.string().regex(/\S/) })
@@ -206,15 +207,32 @@ export const hostContract = defineRpcContract({
     output: ghResultSchema,
   },
   fetchReviewQueue: {
-    input: z.object({ tracked: z.array(z.object(prRequestFields).strict()) }).strict(),
+    input: z
+      .object({
+        layerQueries: z.array(z.string()),
+        tracked: z.array(z.object(prRequestFields).strict()),
+      })
+      .strict(),
     output: ghResultSchema,
   },
   fetchViewerTeams: {
     input: z.object({}).strict(),
     output: ghResultSchema,
   },
-  fetchTeamPrPage: {
-    input: teamPrPageRequestSchema,
+  fetchNotifications: {
+    input: z.object({ since: z.string().datetime() }).strict(),
+    output: ghResultSchema,
+  },
+  fetchActivityDetails: {
+    input: z.object({ prs: z.array(z.object(prRequestFields).strict()) }).strict(),
+    output: ghResultSchema,
+  },
+  markNotificationRead: {
+    input: z.object({ threadId: z.string().regex(/^\d+$/) }).strict(),
+    output: ghResultSchema,
+  },
+  fetchTeamMembers: {
+    input: z.object({ team: teamSchema }).strict(),
     output: ghResultSchema,
   },
   mergePullRequest: {
@@ -440,6 +458,32 @@ export type SubmitReviewResult = z.infer<typeof submitReviewResultSchema>;
 const prRefRequestSchema = z
   .object({ repo: z.string().min(1), number: z.number().int().positive() })
   .strict();
+export type PrRefRequest = z.infer<typeof prRefRequestSchema>;
+
+const repoVisibilityRequestSchema = z
+  .object({ repo: z.string().min(1), layer: z.string().min(1).nullable() })
+  .strict();
+export type RepoVisibilityRequest = z.infer<typeof repoVisibilityRequestSchema>;
+
+const teammatesTeamRequestSchema = z.object({ team: teamSchema.nullable() }).strict();
+export type TeammatesTeamRequest = z.infer<typeof teammatesTeamRequestSchema>;
+
+const viewerTeamsResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    teams: z.array(z.object({ team: z.string(), name: z.string() })),
+  }),
+  z.object({ kind: z.literal("error"), message: z.string() }),
+]);
+export type ViewerTeamsResult = z.infer<typeof viewerTeamsResultSchema>;
+
+const reviewInstructionsSchema = z.object({ instructions: z.string(), isDefault: z.boolean() });
+export type ReviewInstructions = z.infer<typeof reviewInstructionsSchema>;
+
+/** null goes back to the default instructions. */
+const setReviewInstructionsRequestSchema = z
+  .object({ instructions: z.string().regex(/\S/).max(20_000).nullable() })
+  .strict();
 
 const markNeedsReviewRequestSchema = prRefRequestSchema;
 export type MarkNeedsReviewRequest = z.infer<typeof markNeedsReviewRequestSchema>;
@@ -539,6 +583,29 @@ export const rpcContract = defineRpcContract({
   markReviewed: { input: markReviewedRequestSchema, output: actionResultSchema },
   markNeedsReview: { input: markNeedsReviewRequestSchema, output: actionResultSchema },
   markQueueSeen: { input: markQueueSeenRequestSchema, output: actionResultSchema },
+  hideRepo: { input: repoVisibilityRequestSchema, output: actionResultSchema },
+  showRepo: { input: repoVisibilityRequestSchema, output: actionResultSchema },
+  ignorePr: { input: prRefRequestSchema, output: actionResultSchema },
+  unignorePr: { input: prRefRequestSchema, output: actionResultSchema },
+  getViewerTeams: { input: z.object({}).strict(), output: viewerTeamsResultSchema },
+  setTeammatesTeam: { input: teammatesTeamRequestSchema, output: actionResultSchema },
+  getReviewInstructions: { input: z.object({}).strict(), output: reviewInstructionsSchema },
+  getActivity: { input: z.object({}).strict(), output: activityResultSchema },
+  refreshActivity: { input: z.object({}).strict(), output: loadedActivitySchema },
+  markActivityRead: {
+    input: z.object({ ids: z.array(z.string().min(1)).min(1).max(500) }).strict(),
+    output: actionResultSchema,
+  },
+  markActivityPrRead: { input: prRefRequestSchema, output: actionResultSchema },
+  markAllActivityRead: { input: z.object({}).strict(), output: actionResultSchema },
+  setActivityMuted: {
+    input: z.object({ login: z.string().min(1), muted: z.boolean() }).strict(),
+    output: actionResultSchema,
+  },
+  setReviewInstructions: {
+    input: setReviewInstructionsRequestSchema,
+    output: actionResultSchema,
+  },
   markThreadOpened: { input: threadRequestSchema, output: actionResultSchema },
   runPrAction: { input: runPrActionRequestSchema, output: actionResultSchema },
   localCommitsAhead: { input: threadRequestSchema, output: localCommitsAheadSchema },

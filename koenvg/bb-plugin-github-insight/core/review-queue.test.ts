@@ -1,17 +1,10 @@
 import { describe, expect, it } from "vitest";
 import fixture from "../test/fixtures/review-queue.json";
 import trackedFixture from "../test/fixtures/review-queue-tracked.json";
-import { parseGithubRepo, parseReviewQueue, type QueueList, type QueuePr } from "./review-queue";
+import { parseGithubRepo, parseReviewQueue, type FetchedLayer, type QueuePr } from "./review-queue";
 
-const NOW = Date.parse("2026-10-02T10:00:00Z");
-const DAY = 24 * 3_600_000;
-
-function prs(list: QueueList): QueuePr[] {
-  return list.groups.flatMap((group) => group.prs);
-}
-
-function byNumber(list: QueueList, number: number): QueuePr {
-  return prs(list).find((pr) => pr.number === number)!;
+function byNumber(layer: FetchedLayer, number: number): QueuePr {
+  return layer.prs.find((pr) => pr.number === number)!;
 }
 
 describe("parseGithubRepo", () => {
@@ -42,7 +35,7 @@ describe("parseGithubRepo", () => {
 });
 
 describe("parseReviewQueue", () => {
-  const queue = parseReviewQueue([fixture], [], NOW).requests;
+  const queue = parseReviewQueue([fixture], 1, []).layers[0]!;
 
   it("maps a node to a QueuePr", () => {
     expect(byNumber(queue, 12)).toEqual({
@@ -50,6 +43,7 @@ describe("parseReviewQueue", () => {
       number: 12,
       title: "Add retries",
       author: "alice",
+      authorAvatarUrl: "https://avatars.githubusercontent.com/u/1?s=40",
       createdAt: "2026-09-30T08:00:00Z",
       updatedAt: "2026-10-02T09:00:00Z",
       draft: false,
@@ -60,8 +54,13 @@ describe("parseReviewQueue", () => {
       url: "https://github.com/acme/api/pull/12",
       state: "open",
       closedAt: null,
+      labels: [],
       activity: null,
     });
+  });
+
+  it("keeps the label names", () => {
+    expect(byNumber(queue, 3).labels).toEqual(["DO NOT REVIEW", "docs"]);
   });
 
   it.each([
@@ -97,37 +96,39 @@ describe("parseReviewQueue", () => {
     expect(byNumber(queue, 15).author).toBeNull();
   });
 
-  it("orders groups by repo and PRs inside a group newest update first", () => {
-    expect(queue.groups.map((group) => [group.repo, group.prs.map((pr) => pr.number)])).toEqual([
-      ["acme/api", [15, 12]],
-      ["acme/docs", [3]],
-      ["acme/web", [7]],
-    ]);
+  it("keeps the order GitHub returned", () => {
+    expect(queue.prs.map((pr) => pr.number)).toEqual([12, 7, 15, 3]);
   });
 
   function withIssueCount(issueCount: number) {
-    return {
-      data: { ...fixture.data, reviewRequests: { ...fixture.data.reviewRequests, issueCount } },
-    };
+    return { data: { ...fixture.data, l0: { ...fixture.data.l0, issueCount } } };
   }
 
-  it("flags the list as truncated when GitHub reports more than 50", () => {
+  it("flags the layer as truncated when GitHub reports more than 50", () => {
     expect(queue.truncated).toBe(false);
-    expect(parseReviewQueue([withIssueCount(70)], [], NOW).requests.truncated).toBe(true);
+    expect(parseReviewQueue([withIssueCount(70)], 1, []).layers[0]!.truncated).toBe(true);
   });
 
   it("flags 50 results as complete", () => {
-    expect(parseReviewQueue([withIssueCount(50)], [], NOW).requests.truncated).toBe(false);
+    expect(parseReviewQueue([withIssueCount(50)], 1, []).layers[0]!.truncated).toBe(false);
+  });
+
+  it("reads each layer search from its own alias, in order", () => {
+    const team = { issueCount: 1, nodes: [fixture.data.l0.nodes[1]] };
+
+    const layers = parseReviewQueue([{ data: { ...fixture.data, l1: team } }], 2, []).layers;
+
+    expect(layers.map((layer) => layer.prs.map((pr) => pr.number))).toEqual([[12, 7, 15, 3], [7]]);
   });
 
   it("rejects a response without the viewer", () => {
     const { viewer: _, ...data } = fixture.data;
 
-    expect(() => parseReviewQueue([{ data }], [], NOW)).toThrow();
+    expect(() => parseReviewQueue([{ data }], 1, [])).toThrow();
   });
 
-  it("rejects a response without the review requests search", () => {
-    expect(() => parseReviewQueue([{ data: {} }], [], NOW)).toThrow();
+  it("rejects a response without a layer search", () => {
+    expect(() => parseReviewQueue([{ data: { viewer: { login: "me" } } }], 1, [])).toThrow();
   });
 });
 
@@ -139,7 +140,7 @@ describe("parseReviewQueue with tracked PRs", () => {
     { owner: "acme", repo: "api", number: 99 },
     { owner: "acme", repo: "api", number: 12 },
   ];
-  const fetched = parseReviewQueue([trackedFixture], refs, NOW);
+  const fetched = parseReviewQueue([trackedFixture], 1, refs);
 
   it("reads open tracked PRs with their head commit and recently merged ones with their merge time", () => {
     expect(
@@ -155,37 +156,21 @@ describe("parseReviewQueue with tracked PRs", () => {
     expect(fetched.gone).toEqual([refs[2], refs[3]]);
   });
 
-  it("reports a PR merged more than 7 days ago as gone", () => {
-    const later = Date.parse("2026-10-01T12:00:00Z") + 7 * DAY + 1;
-
-    expect(parseReviewQueue([trackedFixture], refs, later).gone).toEqual([
-      refs[1],
-      refs[2],
-      refs[3],
-    ]);
-  });
-
-  it("keeps a PR merged exactly 7 days ago", () => {
-    const later = Date.parse("2026-10-01T12:00:00Z") + 7 * DAY;
-
-    expect(parseReviewQueue([trackedFixture], refs, later).gone).toEqual([refs[2], refs[3]]);
-  });
-
-  it("keeps the review requests next to the tracked PRs", () => {
-    expect(prs(fetched.requests).map((pr) => pr.number)).toEqual([12]);
+  it("keeps the layer search next to the tracked PRs", () => {
+    expect(fetched.layers[0]!.prs.map((pr) => pr.number)).toEqual([12]);
   });
 
   it("reports a tracked PR that the response leaves out as gone", () => {
-    expect(parseReviewQueue([fixture], [refs[0]!], NOW).gone).toEqual([refs[0]]);
+    expect(parseReviewQueue([fixture], 1, [refs[0]!]).gone).toEqual([refs[0]]);
   });
 
   it("reads the same PRs when the tracked PRs come in a separate batch response", () => {
-    const { viewer, reviewRequests, ...trackedData } = trackedFixture.data;
+    const { viewer, l0, ...trackedData } = trackedFixture.data;
 
     const batched = parseReviewQueue(
-      [{ data: { viewer, reviewRequests } }, { data: { viewer, ...trackedData } }],
+      [{ data: { viewer, l0 } }, { data: { viewer, ...trackedData } }],
+      1,
       refs,
-      NOW,
     );
 
     expect(batched).toEqual(fetched);
@@ -202,7 +187,7 @@ describe("parseReviewQueue activity on tracked PRs", () => {
     const response = {
       data: {
         viewer: { login: "me" },
-        reviewRequests: { issueCount: 0, nodes: [] },
+        l0: { issueCount: 0, nodes: [] },
         t0: {
           pullRequest: {
             ...trackedNode,
@@ -213,7 +198,7 @@ describe("parseReviewQueue activity on tracked PRs", () => {
         },
       },
     };
-    return parseReviewQueue([response], [ref], NOW).tracked[0]!.activity;
+    return parseReviewQueue([response], 1, [ref]).tracked[0]!.activity;
   }
 
   function review(
@@ -235,7 +220,7 @@ describe("parseReviewQueue activity on tracked PRs", () => {
   }
 
   it("has no activity on review request rows", () => {
-    expect(byNumber(parseReviewQueue([fixture], [], NOW).requests, 12).activity).toBeNull();
+    expect(byNumber(parseReviewQueue([fixture], 1, []).layers[0]!, 12).activity).toBeNull();
   });
 
   it("reports nothing when nobody posted", () => {

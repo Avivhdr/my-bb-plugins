@@ -3,7 +3,7 @@
     "viewer": {
       "login": "me"
     },
-    "reviewRequests": {
+    "l0": {
       "issueCount": 4,
       "nodes": [
         {
@@ -17,7 +17,8 @@
           "createdAt": "2026-09-30T08:00:00Z",
           "updatedAt": "2026-10-02T09:00:00Z",
           "author": {
-            "login": "alice"
+            "login": "alice",
+            "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
           },
           "repository": {
             "nameWithOwner": "acme/api"
@@ -35,6 +36,9 @@
                 }
               }
             ]
+          },
+          "labels": {
+            "nodes": []
           }
         },
         {
@@ -122,6 +126,16 @@
                 "commit": {
                   "statusCheckRollup": null
                 }
+              }
+            ]
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "DO NOT REVIEW"
+              },
+              {
+                "name": "docs"
               }
             ]
           }

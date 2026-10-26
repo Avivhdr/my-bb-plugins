@@ -24,8 +24,13 @@ import { overviewPageArgs } from "./github/overview-query";
 import { fitPrFilesPage, prFilesPageArgs } from "./github/pr-files-query";
 import { prHeadArgs } from "./github/pr-head-query";
 import { reviewQueueBatchArgs } from "./github/review-queue-query";
+import { teamMembersArgs, viewerTeamsArgs } from "./core/teams";
+import {
+  activityBatchArgs,
+  markNotificationReadArgs,
+  notificationsArgs,
+} from "./github/activity-query";
 import { ADD_REVIEW_ARGS, addPullRequestReviewInput } from "./github/review-mutations";
-import { teamPrPageArgs, VIEWER_TEAMS_ARGS } from "./github/team-prs-query";
 import { replyToThreadArgs, setThreadResolvedArgs } from "./github/review-thread-mutations";
 import { reviewThreadsPageArgs } from "./github/review-threads-query";
 import { timelinePageArgs } from "./github/timeline-query";
@@ -58,10 +63,15 @@ export default experimental_defineHostEntry({
     replyToThread: (request, context) => runGhJson(replyToThreadArgs(request), context.signal),
     setThreadResolved: (request, context) =>
       runGhJson(setThreadResolvedArgs(request), context.signal),
-    fetchReviewQueue: ({ tracked }, context) =>
-      fetchReviewQueue(reviewQueueBatchArgs(tracked), context.signal),
-    fetchViewerTeams: (_request, context) => runGhJson(VIEWER_TEAMS_ARGS, context.signal),
-    fetchTeamPrPage: (request, context) => runGhJson(teamPrPageArgs(request), context.signal),
+    fetchReviewQueue: ({ layerQueries, tracked }, context) =>
+      fetchReviewQueue(reviewQueueBatchArgs(layerQueries, tracked), context.signal),
+    fetchViewerTeams: (_request, context) => runGhJson(viewerTeamsArgs(), context.signal),
+    fetchTeamMembers: ({ team }, context) => runGhJson(teamMembersArgs(team), context.signal),
+    fetchNotifications: ({ since }, context) => runGhJson(notificationsArgs(since), context.signal),
+    fetchActivityDetails: ({ prs }, context) =>
+      fetchReviewQueue(activityBatchArgs(prs), context.signal),
+    markNotificationRead: ({ threadId }, context) =>
+      runGhJson(markNotificationReadArgs(threadId), context.signal),
     mergePullRequest: (request, context) =>
       runGhJson(mergePullRequestArgs(request), context.signal),
     enqueuePullRequest: (request, context) =>
@@ -87,7 +97,9 @@ async function gh(args: string[], signal: AbortSignal, stdin?: string): Promise<
   });
   run.child.stdin?.end(stdin);
   const { stdout } = await run;
-  return JSON.parse(stdout) as unknown;
+  // A write such as marking a notification read answers with no body.
+  const text = String(stdout);
+  return text.trim() === "" ? null : (JSON.parse(text) as unknown);
 }
 
 async function fetchReviewQueue(batches: string[][], signal: AbortSignal): Promise<GhResult> {

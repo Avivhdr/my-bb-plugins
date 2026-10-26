@@ -5,20 +5,33 @@ import type {
   MarkNeedsReviewRequest,
   MarkQueueSeenRequest,
   MarkReviewedRequest,
+  PrRefRequest,
+  RepoVisibilityRequest,
+  TeammatesTeamRequest,
+  ViewerTeamsResult,
 } from "../contract";
 import { newCommentIds } from "../core/new-comments";
 import type { PullRequestRef } from "../core/pr-ref";
+import {
+  keepsAuthor,
+  layerSearchQuery,
+  setRepoHidden,
+  skipLabelOf,
+  type ReviewFilters,
+  type ReviewLayer,
+} from "../core/review-filters";
 import { readReviewPr, type ReviewPr } from "../core/review-pr";
 import {
+  CLOSED_PR_WINDOW_MS,
   parseGithubRepo,
-  TEAM_PR_WINDOW_MS,
   type FetchedQueue,
   type PrActivity,
-  type QueueList,
 } from "../core/review-queue";
 import {
+  countedPrs,
   isReviewed,
   loadedReviewQueueSchema,
+  viewPrs,
   type LinkedQueuePr,
   type LinkedThread,
   type LoadedReviewQueue,
@@ -31,14 +44,15 @@ import {
   type ReviewThreadStatus,
 } from "../core/review-queue-view";
 import { reviewState } from "../core/review-state";
-import type { TeamScan, TeamScanRequest } from "../core/team-prs";
+import type { ViewerTeam } from "../core/teams";
 import type { PrResolution } from "../pr-lookup";
+import { createIgnoredPrs } from "./ignored-prs";
 import { isSharedEnvironment } from "./review-environment";
 import { createReturnedThreads } from "./returned-threads";
+import { createReviewFiltersStore } from "./review-filters";
 import { createReviewedMarks, type ReviewedMark } from "./reviewed-marks";
 import { createSeenComments } from "./seen-comments";
 import { createSeenPrs } from "./seen-prs";
-import { createTeamPrs, type TeamPrs } from "./team-prs";
 
 export const NO_HOST_MESSAGE = "No host available";
 export const NOT_A_REVIEW_THREAD_MESSAGE = "This thread is not a review thread";
@@ -46,7 +60,8 @@ export const SHARED_ENVIRONMENT_MESSAGE = "Review threads need a new worktree";
 export const INVALID_REPOSITORY_MESSAGE = "Repository must be owner/name";
 export const REVIEW_QUEUE_INTERVAL_MS = 5 * 60_000;
 export const REVIEW_QUEUE_STORAGE_KEY = "review-queue";
-export const TEAM_SCAN_OVERLAP_MS = 10 * 60_000;
+/** Written by the team PR scan of earlier versions. */
+const TEAM_PRS_STORAGE_KEY = "team-prs";
 
 export interface QueueProject {
   id: string;
@@ -67,8 +82,14 @@ export interface QueueThread {
 
 export interface ReviewQueueServiceDeps {
   primaryHostId(): Promise<string | null>;
-  fetchReviewQueue(hostId: string, tracked: PullRequestRef[]): Promise<FetchedQueue>;
-  scanTeamPrs(hostId: string, request: TeamScanRequest): Promise<TeamScan>;
+  fetchReviewQueue(
+    hostId: string,
+    layerQueries: string[],
+    tracked: PullRequestRef[],
+  ): Promise<FetchedQueue>;
+  /** Lowercase logins of the members of an `org/slug` team. */
+  fetchTeamMembers(hostId: string, team: string): Promise<string[]>;
+  listViewerTeams(hostId: string): Promise<ViewerTeam[]>;
   listProjects(): Promise<QueueProject[]>;
   listThreads(): Promise<QueueThread[]>;
   listReviewThreads(): Promise<QueueThread[]>;
@@ -89,7 +110,12 @@ interface StartedReview {
 
 interface LinkedView {
   view: ReviewQueueView;
-  stale: { returnedThreadIds: string[]; seenKeys: string[] };
+  stale: {
+    returnedThreadIds: string[];
+    seenKeys: string[];
+    ignoredKeys: string[];
+    expiredMarks: PullRequestRef[];
+  };
 }
 
 function prKey(repo: string, number: number): string {
@@ -117,21 +143,11 @@ function uniqueRefs(refs: readonly (PullRequestRef | null)[]): PullRequestRef[] 
 function trackedRefsOf(
   marked: readonly ReviewedMark[],
   reviews: readonly StartedReview[],
-  team: TeamPrs,
 ): PullRequestRef[] {
   return uniqueRefs([
     ...marked.map((mark) => mark.ref),
     ...reviews.map(({ pr }) => refOf(pr.repo, pr.number)),
-    ...team.refs,
   ]);
-}
-
-function withMoreTracked(fetched: FetchedQueue, more: FetchedQueue): FetchedQueue {
-  return {
-    requests: fetched.requests,
-    tracked: [...fetched.tracked, ...more.tracked],
-    gone: [...fetched.gone, ...more.gone],
-  };
 }
 
 function errorText(error: unknown): string {
@@ -145,7 +161,7 @@ function threadStatus(thread: QueueThread): ReviewThreadStatus {
   return "running";
 }
 
-const storedReviewQueueSchema = z.object({ v: z.literal(5), result: loadedReviewQueueSchema });
+const storedReviewQueueSchema = z.object({ v: z.literal(6), result: loadedReviewQueueSchema });
 
 function viewOf(result: LoadedReviewQueue): ReviewQueueView | null {
   if (result.kind === "error") return result.lastGood;
@@ -154,28 +170,62 @@ function viewOf(result: LoadedReviewQueue): ReviewQueueView | null {
 }
 
 function rowsOf(view: ReviewQueueView): QueueRow[] {
-  return [...view.needsReview, ...view.reviewed].flatMap((group) =>
-    group.prs.map(({ projectIds: _, review: __, newActivity: ___, thread: ____, ...row }) => row),
+  return viewPrs(view).map(
+    ({
+      projectIds: _,
+      review: __,
+      newActivity: ___,
+      thread: ____,
+      skipLabel: _____,
+      ignored: ______,
+      ...row
+    }) => row,
   );
 }
 
-function mergeRows({ requests, tracked }: FetchedQueue): QueueRow[] {
+function truncatedLayersOf(view: ReviewQueueView): Set<string> {
+  return new Set(view.layers.filter((layer) => layer.truncated).map((layer) => layer.name));
+}
+
+/**
+ * Each PR once: the first layer that found it and keeps its author wins, then the tracked PRs
+ * no layer found. `fetched.layers` lines up with `layers`.
+ */
+function mergeRows(
+  { layers: found, tracked }: FetchedQueue,
+  layers: readonly ReviewLayer[],
+  teammates: ReadonlySet<string> | null,
+): QueueRow[] {
   const trackedByKey = new Map(tracked.map((pr) => [prKey(pr.repo, pr.number), pr]));
-  const rows = requests.groups.flatMap((group) =>
-    group.prs.map((pr) => ({
-      ...pr,
-      activity: trackedByKey.get(prKey(pr.repo, pr.number))?.activity ?? null,
-      requested: true,
-    })),
-  );
-  const keys = new Set(rows.map((row) => prKey(row.repo, row.number)));
+  const rows: QueueRow[] = [];
+  const keys = new Set<string>();
+  layers.forEach((layer, index) => {
+    for (const pr of found[index]?.prs ?? []) {
+      const key = prKey(pr.repo, pr.number);
+      if (keys.has(key) || !keepsAuthor(layer, pr.author, teammates)) continue;
+      keys.add(key);
+      rows.push({ ...pr, activity: trackedByKey.get(key)?.activity ?? null, layer: layer.name });
+    }
+  });
   for (const pr of tracked) {
     const key = prKey(pr.repo, pr.number);
     if (keys.has(key)) continue;
     keys.add(key);
-    rows.push({ ...pr, requested: false });
+    rows.push({ ...pr, layer: null });
   }
   return rows;
+}
+
+function isHiddenFrom(filters: ReviewFilters, layerName: string, repo: string): boolean {
+  const key = repo.toLowerCase();
+  const layer = filters.layers.find((entry) => entry.name === layerName);
+  return (
+    layer === undefined || filters.excludeRepos.includes(key) || layer.excludeRepos.includes(key)
+  );
+}
+
+function closedBefore(row: QueueRow, at: number): boolean {
+  return row.state !== "open" && (row.closedAt === null || Date.parse(row.closedAt) < at);
 }
 
 function newActivitySince(
@@ -205,22 +255,33 @@ function needsYou(pr: LinkedQueuePr): boolean {
   return pr.thread?.status === "needs_you" || pr.thread?.returned != null;
 }
 
-function byAttentionThenUpdate(a: LinkedQueuePr, b: LinkedQueuePr): number {
+/** Skipped PRs last, then the PRs whose thread needs you, then the oldest PR first. */
+function byAttentionThenAge(a: LinkedQueuePr, b: LinkedQueuePr): number {
   return (
-    Number(needsYou(b)) - Number(needsYou(a)) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+    Number(a.skipLabel !== null) - Number(b.skipLabel !== null) ||
+    Number(needsYou(b)) - Number(needsYou(a)) ||
+    Date.parse(a.createdAt) - Date.parse(b.createdAt)
   );
 }
 
 function sectionOf(prs: LinkedQueuePr[]): QueueSection {
   const byRepo = new Map<string, LinkedQueuePr[]>();
   for (const pr of prs) byRepo.set(pr.repo, [...(byRepo.get(pr.repo) ?? []), pr]);
+  const oldest = (group: LinkedQueuePr[]) =>
+    Math.min(...group.map((pr) => Date.parse(pr.createdAt)));
   return [...byRepo]
     .map(([repo, group]) => ({
       repo,
-      prs: group.sort(byAttentionThenUpdate),
+      prs: group.sort(byAttentionThenAge),
       attention: group.some(needsYou),
+      oldest: oldest(group),
     }))
-    .sort((a, b) => Number(b.attention) - Number(a.attention) || a.repo.localeCompare(b.repo))
+    .sort(
+      (a, b) =>
+        Number(b.attention) - Number(a.attention) ||
+        a.oldest - b.oldest ||
+        a.repo.localeCompare(b.repo),
+    )
     .map(({ repo, prs: group }) => ({ repo, prs: group }));
 }
 
@@ -241,7 +302,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   const seenPrs = createSeenPrs(deps.kv);
   const returnedThreads = createReturnedThreads(deps.kv);
   const seenComments = createSeenComments(deps.kv);
-  const teamPrs = createTeamPrs(deps.kv);
+  const filtersStore = createReviewFiltersStore(deps.kv);
+  const ignoredPrs = createIgnoredPrs(deps.kv);
   let running: Promise<LoadedReviewQueue> | null = null;
   let queued: Promise<LoadedReviewQueue> | null = null;
 
@@ -251,7 +313,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   }
 
   async function store(result: LoadedReviewQueue): Promise<void> {
-    await deps.kv.set(REVIEW_QUEUE_STORAGE_KEY, { v: 5, result });
+    await deps.kv.set(REVIEW_QUEUE_STORAGE_KEY, { v: 6, result });
     deps.publish(result);
   }
 
@@ -317,13 +379,14 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
 
   async function linkView(
     rows: QueueRow[],
-    truncated: boolean,
+    truncatedLayers: ReadonlySet<string>,
     loadedAt: number,
+    teammatesError: string | null,
   ): Promise<LinkedView> {
     const loadingLive = liveReviewThreads();
     const loadingReviews = loadingLive.then(startedReviews);
     const loadingMarks = marks.list();
-    const [projectIds, live, reviews, threads, marked, seenByPr, seen, returned, team] =
+    const [projectIds, live, reviews, threads, marked, seenByPr, seen, returned, filters, ignored] =
       await Promise.all([
         projectIdsByRepo(),
         loadingLive,
@@ -333,12 +396,16 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         loadingMarks.then(seenCommentsByPr),
         seenPrs.list(),
         returnedThreads.list(),
-        teamPrs.read(),
+        filtersStore.read(),
+        ignoredPrs.list(),
       ]);
     const marksByPr = new Map(marked.map((mark) => [refKey(mark.ref), mark]));
     const reviewThreadIds = new Set(reviews.map(({ thread }) => thread.id));
+    const reviewedPrs = new Set(reviews.map(({ pr }) => prKey(pr.repo, pr.number)));
     const liveIds = new Set(live.map(({ id }) => id));
-    const tracked = new Set(trackedRefsOf(marked, reviews, team).map(refKey));
+    const tracked = new Set(trackedRefsOf(marked, reviews).map(refKey));
+    const expiredBefore = loadedAt - CLOSED_PR_WINDOW_MS;
+    const expiredMarks: PullRequestRef[] = [];
     const linkThread = (thread: QueueThread | undefined): LinkedThread | null => {
       if (thread === undefined) return null;
       const status = threadStatus(thread);
@@ -353,10 +420,19 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     const linked = rows.flatMap((row): LinkedQueuePr[] => {
       const key = prKey(row.repo, row.number);
       const mark = marksByPr.get(key);
-      if (!row.requested && !tracked.has(key)) return [];
+      const layer =
+        row.layer !== null && !isHiddenFrom(filters, row.layer, row.repo) ? row.layer : null;
+      if (layer === null && !tracked.has(key)) return [];
+      // A merged or closed PR stays while its review thread is open, else for 7 days.
+      if (closedBefore(row, expiredBefore) && !reviewedPrs.has(key)) {
+        const ref = refOf(row.repo, row.number);
+        if (mark !== undefined && ref !== null) expiredMarks.push(ref);
+        return [];
+      }
       return [
         {
           ...row,
+          layer,
           projectIds: projectIds.get(row.repo.toLowerCase()) ?? [],
           review: reviewState(mark?.headOid ?? null, row.headOid),
           newActivity:
@@ -364,23 +440,48 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
               ? []
               : newActivitySince(row.activity, mark.markedAt, seenByPr.get(key) ?? new Set()),
           thread: linkThread(threads.get(key)),
+          skipLabel: skipLabelOf(row.labels, filters.skipLabels),
+          ignored: row.state === "open" && ignored.has(key),
         },
       ];
     });
-    const needsReview = linked.filter((pr) => !isReviewed(pr));
-    const needsReviewKeys = new Set(needsReview.map((pr) => prKey(pr.repo, pr.number)));
+    const merged = linked.filter((pr) => pr.state !== "open");
+    const open = linked.filter((pr) => pr.state === "open" && !pr.ignored);
+    const reviewed = open.filter((pr) => isReviewed(pr) || pr.layer === null);
+    const layers = filters.layers.map((layer) => {
+      const prs = open.filter((pr) => pr.layer === layer.name && !isReviewed(pr));
+      const section = sectionOf(prs);
+      return {
+        name: layer.name,
+        prs: section,
+        count: prs.filter((pr) => pr.skipLabel === null).length,
+        truncated: truncatedLayers.has(layer.name),
+        hiddenRepos: layer.excludeRepos,
+        teammates: layer.teammates,
+      };
+    });
+    const waitingKeys = new Set(layers.flatMap(countedPrs).map((pr) => prKey(pr.repo, pr.number)));
+    const rowKeys = new Set(rows.map((row) => prKey(row.repo, row.number)));
     return {
       view: {
-        needsReview: sectionOf(needsReview),
-        reviewed: sectionOf(linked.filter(isReviewed)),
-        truncated,
+        layers,
+        reviewed: sectionOf(reviewed),
+        merged: sectionOf(merged),
+        ignored: sectionOf(linked.filter((pr) => pr.ignored)),
+        hiddenEverywhere: filters.excludeRepos,
+        teammatesTeam: filters.teammatesTeam,
+        teammatesError,
         loadedAt,
-        hasUnseen: [...needsReviewKeys].some((key) => !seen.has(key)),
+        hasUnseen: [...waitingKeys].some((key) => !seen.has(key)),
         hasReturned: linked.some((pr) => pr.thread?.returned != null),
       },
       stale: {
         returnedThreadIds: [...returned].filter((id) => !liveIds.has(id)),
-        seenKeys: [...seen].filter((key) => !needsReviewKeys.has(key)),
+        seenKeys: [...seen].filter((key) => !waitingKeys.has(key)),
+        // A truncated layer may still list an ignored PR past its first 50.
+        ignoredKeys:
+          truncatedLayers.size > 0 ? [] : [...ignored].filter((key) => !rowKeys.has(key)),
+        expiredMarks,
       },
     };
   }
@@ -393,44 +494,12 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     );
   }
 
-  async function trackedRefs(team: TeamPrs): Promise<PullRequestRef[]> {
+  async function trackedRefs(): Promise<PullRequestRef[]> {
     const [marked, reviews] = await Promise.all([
       marks.list(),
       liveReviewThreads().then(startedReviews),
     ]);
-    return trackedRefsOf(marked, reviews, team);
-  }
-
-  async function discoverTeamPrs(
-    hostId: string,
-    requests: QueueList,
-    team: TeamPrs,
-    tracked: readonly PullRequestRef[],
-  ): Promise<PullRequestRef[]> {
-    const repos = new Set([
-      ...requests.groups.map((group) => group.repo.toLowerCase()),
-      ...team.refs.map(({ owner, repo }) => `${owner}/${repo}`.toLowerCase()),
-    ]);
-    if (repos.size === 0) return [];
-    const startedAt = deps.now();
-    const sinceOf = (through: string | undefined) =>
-      new Date(
-        through === undefined
-          ? startedAt - TEAM_PR_WINDOW_MS
-          : Date.parse(through) - TEAM_SCAN_OVERLAP_MS,
-      ).toISOString();
-    try {
-      const scan = await deps.scanTeamPrs(hostId, {
-        repos: [...repos].map((repo) => ({ repo, since: sinceOf(team.scannedThrough[repo]) })),
-        startedAt: new Date(startedAt).toISOString(),
-      });
-      await teamPrs.recordScan(scan);
-      const known = new Set(tracked.map(refKey));
-      return uniqueRefs(scan.refs).filter((ref) => !known.has(refKey(ref)));
-    } catch (error) {
-      deps.warn(`Team pull request scan failed: ${errorText(error)}`);
-      return [];
-    }
+    return trackedRefsOf(marked, reviews);
   }
 
   async function deleteEach<T>(
@@ -447,23 +516,35 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     );
   }
 
-  async function forgetStale({ returnedThreadIds, seenKeys }: LinkedView["stale"]): Promise<void> {
+  async function forgetStale({
+    returnedThreadIds,
+    seenKeys,
+    ignoredKeys,
+    expiredMarks,
+  }: LinkedView["stale"]): Promise<void> {
     await Promise.all([
       deleteEach(returnedThreadIds, returnedThreads.delete, (id) => `returned thread ${id}`),
+      deleteEach(expiredMarks, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`),
       seenKeys.length === 0
         ? undefined
         : seenPrs
             .remove(seenKeys)
             .catch((error) => deps.warn(`Could not prune seen PRs: ${errorText(error)}`)),
+      ignoredKeys.length === 0
+        ? undefined
+        : ignoredPrs
+            .remove(ignoredKeys)
+            .catch((error) => deps.warn(`Could not prune ignored PRs: ${errorText(error)}`)),
     ]);
   }
 
   async function linkAndForget(
     rows: QueueRow[],
-    truncated: boolean,
+    truncatedLayers: ReadonlySet<string>,
     loadedAt: number,
+    teammatesError: string | null,
   ): Promise<ReviewQueueView> {
-    const { view, stale } = await linkView(rows, truncated, loadedAt);
+    const { view, stale } = await linkView(rows, truncatedLayers, loadedAt, teammatesError);
     await forgetStale(stale);
     return view;
   }
@@ -471,21 +552,41 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   async function load(): Promise<ReviewQueueView> {
     const hostId = await deps.primaryHostId();
     if (hostId === null) throw new Error(NO_HOST_MESSAGE);
-    const team = await teamPrs.read();
-    const tracked = await trackedRefs(team);
-    const fetched = await deps.fetchReviewQueue(hostId, tracked);
-    const found = await discoverTeamPrs(hostId, fetched.requests, team, tracked);
-    const all =
-      found.length === 0
-        ? fetched
-        : withMoreTracked(fetched, await deps.fetchReviewQueue(hostId, found));
-    await Promise.all([
-      deleteEach(all.gone, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`),
-      teamPrs
-        .remove(all.gone)
-        .catch((error) => deps.warn(`Could not prune team PRs: ${errorText(error)}`)),
+    const [filters, tracked] = await Promise.all([filtersStore.read(), trackedRefs()]);
+    const queries = filters.layers.map((layer) => layerSearchQuery(layer, filters.excludeRepos));
+    // Teammates and Team share one search unless their hidden repos differ.
+    const unique = [...new Set(queries)];
+    const [searched, teammates] = await Promise.all([
+      deps.fetchReviewQueue(hostId, unique, tracked),
+      readTeammates(hostId, filters.teammatesTeam),
     ]);
-    return linkAndForget(mergeRows(all), all.requests.truncated, deps.now());
+    const fetched = {
+      ...searched,
+      layers: queries.map((query) => searched.layers[unique.indexOf(query)]!),
+    };
+    await deleteEach(fetched.gone, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`);
+    const truncated = new Set(
+      filters.layers.filter((_, index) => fetched.layers[index]?.truncated).map(({ name }) => name),
+    );
+    return linkAndForget(
+      mergeRows(fetched, filters.layers, teammates.members),
+      truncated,
+      deps.now(),
+      teammates.error,
+    );
+  }
+
+  async function readTeammates(
+    hostId: string,
+    team: string | null,
+  ): Promise<{ members: Set<string> | null; error: string | null }> {
+    if (team === null) return { members: null, error: null };
+    try {
+      return { members: new Set(await deps.fetchTeamMembers(hostId, team)), error: null };
+    } catch (error) {
+      deps.warn(`Could not read the members of ${team}: ${errorText(error)}`);
+      return { members: null, error: errorText(error) };
+    }
   }
 
   async function runLoad(): Promise<LoadedReviewQueue> {
@@ -533,7 +634,12 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       const stored = await readStored();
       const view = stored && viewOf(stored);
       if (stored === null || view === null) return;
-      const next = await linkAndForget(rowsOf(view), view.truncated, view.loadedAt);
+      const next = await linkAndForget(
+        rowsOf(view),
+        truncatedLayersOf(view),
+        view.loadedAt,
+        view.teammatesError,
+      );
       // A load that finished meanwhile has newer GitHub data; keep it over this re-link.
       const current = await readStored();
       if (current === null || viewOf(current)?.loadedAt !== view.loadedAt) return;
@@ -642,9 +748,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     const stored = await readStored();
     const view = stored && viewOf(stored);
     if (!view) return false;
-    return [...view.needsReview, ...view.reviewed].some((group) =>
-      group.prs.some((pr) => pr.thread?.id === threadId),
-    );
+    return viewPrs(view).some((pr) => pr.thread?.id === threadId);
   }
 
   async function threadActive(threadId: string): Promise<void> {
@@ -679,7 +783,63 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     return { kind: "ok" };
   }
 
+  async function setRepoVisibility(
+    { repo, layer }: RepoVisibilityRequest,
+    hidden: boolean,
+  ): Promise<ActionResult> {
+    if (refOf(repo, 1) === null) return { kind: "error", message: INVALID_REPOSITORY_MESSAGE };
+    try {
+      await filtersStore.save(setRepoHidden(await filtersStore.read(), repo, layer, hidden));
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    // Hiding drops the repo's PRs from the stored rows at once. Both change the searches.
+    if (hidden) await relink();
+    void refreshReviewQueue();
+    return { kind: "ok" };
+  }
+
+  async function setIgnored(
+    { repo, number }: PrRefRequest,
+    ignored: boolean,
+  ): Promise<ActionResult> {
+    if (refOf(repo, number) === null) {
+      return { kind: "error", message: INVALID_REPOSITORY_MESSAGE };
+    }
+    try {
+      const key = prKey(repo, number);
+      await (ignored ? ignoredPrs.add(key) : ignoredPrs.remove([key]));
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    await relink();
+    return { kind: "ok" };
+  }
+
+  async function getViewerTeams(): Promise<ViewerTeamsResult> {
+    try {
+      const hostId = await deps.primaryHostId();
+      if (hostId === null) return { kind: "error", message: NO_HOST_MESSAGE };
+      return { kind: "ok", teams: await deps.listViewerTeams(hostId) };
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+  }
+
+  async function setTeammatesTeam({ team }: TeammatesTeamRequest): Promise<ActionResult> {
+    try {
+      await filtersStore.save({ ...(await filtersStore.read()), teammatesTeam: team });
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    void refreshReviewQueue();
+    return { kind: "ok" };
+  }
+
   async function run(signal: AbortSignal): Promise<void> {
+    await deps.kv
+      .delete(TEAM_PRS_STORAGE_KEY)
+      .catch((error) => deps.warn(`Could not delete the team PR scan: ${errorText(error)}`));
     const aborted = new Promise<void>((resolve) =>
       signal.addEventListener("abort", () => resolve(), { once: true }),
     );
@@ -703,6 +863,12 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     threadActive,
     threadStopped,
     markThreadOpened,
+    hideRepo: (request: RepoVisibilityRequest) => setRepoVisibility(request, true),
+    showRepo: (request: RepoVisibilityRequest) => setRepoVisibility(request, false),
+    ignorePr: (request: PrRefRequest) => setIgnored(request, true),
+    unignorePr: (request: PrRefRequest) => setIgnored(request, false),
+    getViewerTeams,
+    setTeammatesTeam,
     run,
   };
 }

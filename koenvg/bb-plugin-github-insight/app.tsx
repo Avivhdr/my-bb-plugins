@@ -7,6 +7,7 @@ import { PrSidebarBadge } from "./ui/pr-sidebar-badge";
 import { PrPanel } from "./ui/pr-panel";
 import { PullRequestsPanel } from "./ui/pull-requests-panel";
 import { PANEL_PATH } from "./ui/pull-requests-routes";
+import { ReviewPromptSettings } from "./ui/review-prompt-settings";
 
 export default definePluginApp((app) => {
   app.slots.navPanel({
@@ -18,6 +19,12 @@ export default definePluginApp((app) => {
     experimental_sidebarAccessory: PrSidebarBadge,
   });
   app.slots.experimental_appOverlay({ id: "pr-rail-badge", component: PrRailBadge });
+  app.slots.settingsSection({
+    id: "review-prompt",
+    title: "Review prompt",
+    description: "What a review thread from Start review is told to look at.",
+    component: ReviewPromptSettings,
+  });
   app.slots.threadPanelAction({
     id: "pr",
     title: "PR",

@@ -3,17 +3,19 @@ import type { PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import type { PullRequestRef } from "../core/pr-ref";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { PrOverview } from "./overview-tab";
+import { prSubjectId } from "../core/pr-subject";
+import { ActivityFeed, ActivityTabBadge } from "./activity-feed";
+import { PrView } from "./pr-panel";
 import {
-  LIST_ROUTE,
   parsePullRequestsRoute,
   pullRequestsRouteToSubPath,
   usePullRequestsNavigation,
+  type ListTab,
+  type RouteFocus,
 } from "./pull-requests-routes";
 import { ICON_ACTION_CLASS } from "./queue-styles";
 import { ReviewComposerPage } from "./review-composer";
 import { ReviewQueueLists } from "./review-queue-list";
-import { usePrInsight } from "./use-pr-insight";
 import { useReviewQueue } from "./use-review-queue";
 import { OVERVIEW_WIDTH, useOverviewLayout } from "./use-overview-layout";
 
@@ -21,6 +23,7 @@ type OverviewLayoutControls = ReturnType<typeof useOverviewLayout>;
 
 export function PullRequestsPanel({ subPath }: PluginNavPanelProps) {
   const queue = useReviewQueue();
+  const navigation = usePullRequestsNavigation();
   const overview = useOverviewLayout();
   const route = parsePullRequestsRoute(subPath);
   if (route.kind === "review") {
@@ -31,6 +34,7 @@ export function PullRequestsPanel({ subPath }: PluginNavPanelProps) {
     );
   }
   const { selected } = route;
+  const tab = route.tab ?? "review";
   const overviewFillsPanel = selected !== null && overview.layout.maximized;
   return (
     <div className="@container flex h-full min-h-0">
@@ -42,18 +46,37 @@ export function PullRequestsPanel({ subPath }: PluginNavPanelProps) {
           selected !== null && !overviewFillsPanel && "@3xl:block",
         )}
       >
-        <ReviewQueueLists queue={queue} selected={selected} />
+        <ListTabs tab={tab} />
+        {tab === "review" ? (
+          <ReviewQueueLists queue={queue} selected={selected} />
+        ) : (
+          <ActivityFeed selected={selected} />
+        )}
       </div>
       {selected !== null && (
-        <PrSidePanel key={pullRequestsRouteToSubPath(route)} pr={selected} overview={overview} />
+        <PrSidePanel
+          key={pullRequestsRouteToSubPath(route)}
+          pr={selected}
+          focus={route.focus ?? null}
+          close={() => navigation.go({ kind: "list", selected: null, tab: route.tab })}
+          overview={overview}
+        />
       )}
     </div>
   );
 }
 
-function PrSidePanel({ pr, overview }: { pr: PullRequestRef; overview: OverviewLayoutControls }) {
-  const navigation = usePullRequestsNavigation();
-  const insight = usePrInsight(pr);
+function PrSidePanel({
+  pr,
+  focus,
+  close,
+  overview,
+}: {
+  pr: PullRequestRef;
+  focus: RouteFocus | null;
+  close(): void;
+  overview: OverviewLayoutControls;
+}) {
   const { maximized } = overview.layout;
   return (
     <aside
@@ -81,15 +104,53 @@ function PrSidePanel({ pr, overview }: { pr: PullRequestRef; overview: OverviewL
           type="button"
           aria-label="Close overview"
           className={ICON_ACTION_CLASS}
-          onClick={() => navigation.go(LIST_ROUTE)}
+          onClick={close}
         >
           <Icon name="X" className="size-4" />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <PrOverview insight={insight} noPrText="Pull request not found" controls={null} />
+      <div className="min-h-0 flex-1">
+        <PrView threadId={prSubjectId(pr)} focus={focus} />
       </div>
     </aside>
+  );
+}
+
+const LIST_TABS: readonly { id: ListTab; label: string }[] = [
+  { id: "review", label: "To review" },
+  { id: "activity", label: "Activity" },
+];
+
+function ListTabs({ tab }: { tab: ListTab }) {
+  const navigation = usePullRequestsNavigation();
+  return (
+    <div
+      role="tablist"
+      aria-label="Pull request lists"
+      className="mx-auto mb-4 flex w-full max-w-4xl items-center gap-0.5"
+    >
+      {LIST_TABS.map(({ id, label }) => {
+        const active = id === tab;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors duration-150 hover:duration-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              active
+                ? "bg-state-active text-foreground"
+                : "text-muted-foreground hover:bg-state-hover hover:text-foreground",
+            )}
+            onClick={() => navigation.go({ kind: "list", selected: null, tab: id })}
+          >
+            {label}
+            {id === "activity" && <ActivityTabBadge />}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

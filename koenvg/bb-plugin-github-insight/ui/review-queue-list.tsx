@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useRpc } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type {
   LinkedQueuePr,
   NewActivity,
+  QueueLayer,
   QueueSection,
   ReturnedReason,
   ReviewThreadStatus,
@@ -10,11 +11,20 @@ import type {
 } from "../contract";
 import { prKey, type PullRequestRef } from "../core/pr-ref";
 import { relativeTime } from "../core/relative-time";
-import { isReviewed } from "../core/review-queue-view";
+import { countedPrs, isReviewed } from "../core/review-queue-view";
 import type { CiState, PrState, QueuePr } from "../core/review-queue";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { messageOf } from "./error-message";
+import { Avatar } from "./avatar";
 import { IconTooltip } from "./icon-tooltip";
 import { Notice, RefreshButton, RefreshError } from "./feedback";
 import { usePullRequestsNavigation } from "./pull-requests-routes";
@@ -128,7 +138,7 @@ function agentStateOf(thread: NonNullable<LinkedQueuePr["thread"]>): AgentState 
 }
 
 const STATUS_PILL_CLASS =
-  "group inline-flex h-9 shrink-0 pointer-coarse:h-11 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-medium transition-colors duration-150 hover:duration-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "group inline-flex h-7 shrink-0 pointer-coarse:h-10 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-xs font-medium transition-colors duration-150 hover:duration-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 function keyOf(pr: LinkedQueuePr): string {
   return `${pr.repo.toLowerCase()}#${pr.number}`;
@@ -157,6 +167,8 @@ function onlyAgentState(section: QueueSection, state: AgentState): QueueSection 
     .filter((group) => group.prs.length > 0);
 }
 
+type ActionResultPromise = Promise<{ kind: "ok" } | { kind: "error"; message: string }>;
+
 export function ReviewQueueLists({
   queue,
   selected,
@@ -177,9 +189,7 @@ export function ReviewQueueLists({
 
   useEffect(() => {
     if (!view?.hasUnseen) return;
-    const prs = view.needsReview.flatMap((group) =>
-      group.prs.map(({ repo, number }) => ({ repo, number })),
-    );
+    const prs = view.layers.flatMap(countedPrs).map(({ repo, number }) => ({ repo, number }));
     rpc.call("markQueueSeen", { prs }).catch(() => {});
   }, [rpc, view]);
 
@@ -192,18 +202,41 @@ export function ReviewQueueLists({
     });
   }
 
-  async function mark(pr: LinkedQueuePr, reviewed: boolean) {
-    const key = keyOf(pr);
+  async function runAction(key: string, call: () => ActionResultPromise) {
     setActionError(null);
     setBusyKey(key, true);
-    const { repo, number, headOid } = pr;
-    const result = await (
-      reviewed
-        ? rpc.call("markReviewed", { repo, number, headOid })
-        : rpc.call("markNeedsReview", { repo, number })
-    ).catch((failure: unknown) => ({ kind: "error" as const, message: messageOf(failure) }));
+    const result = await call().catch((failure: unknown) => ({
+      kind: "error" as const,
+      message: messageOf(failure),
+    }));
     if (result.kind === "error") setActionError(result.message);
     setBusyKey(key, false);
+  }
+
+  function mark(pr: LinkedQueuePr, reviewed: boolean) {
+    const { repo, number, headOid } = pr;
+    return runAction(keyOf(pr), () =>
+      reviewed
+        ? rpc.call("markReviewed", { repo, number, headOid })
+        : rpc.call("markNeedsReview", { repo, number }),
+    );
+  }
+
+  function ignore(pr: LinkedQueuePr, ignored: boolean) {
+    const { repo, number } = pr;
+    return runAction(keyOf(pr), () =>
+      rpc.call(ignored ? "ignorePr" : "unignorePr", { repo, number }),
+    );
+  }
+
+  function setTeammatesTeam(team: string | null) {
+    return runAction("teammates-team", () => rpc.call("setTeammatesTeam", { team }));
+  }
+
+  function setRepoHidden(repo: string, layer: string | null, hidden: boolean) {
+    return runAction(`repo:${repo}`, () =>
+      rpc.call(hidden ? "hideRepo" : "showRepo", { repo, layer }),
+    );
   }
 
   async function archive(pr: LinkedQueuePr, threadId: string) {
@@ -228,19 +261,29 @@ export function ReviewQueueLists({
         pr.thread !== null && archived.has(pr.thread.id) ? { ...pr, thread: null } : pr,
       ),
     }));
-  const needsReview = withoutArchivedThreads(view?.needsReview ?? []);
-  const reviewed = withoutArchivedThreads(view?.reviewed ?? []);
-  const needsReviewCount = countOf(needsReview);
-  if (needsReviewCount === 0 && agentFilter !== null) setAgentFilter(null);
+  const layers = (view?.layers ?? []).map((layer) => ({
+    ...layer,
+    prs: withoutArchivedThreads(layer.prs),
+  }));
+  const waiting = layers.flatMap((layer) => layer.prs);
+  if (countOf(waiting) === 0 && agentFilter !== null) setAgentFilter(null);
   const actions: CardHandlers = {
     busy: (pr) => busy.has(keyOf(pr)),
     selected: (pr) => isSelected(pr, selected),
     mark: (pr, value) => void mark(pr, value),
+    ignore: (pr, value) => void ignore(pr, value),
     archive: (pr, threadId) => void archive(pr, threadId),
   };
+  const shown = (section: QueueSection) =>
+    agentFilter === null ? section : onlyAgentState(section, agentFilter);
+  // An empty layer is left out, except Teammates while it needs a team or could not read it.
+  const needsTeamNotice = (layer: QueueLayer) =>
+    layer.teammates === "only" && (view?.teammatesTeam === null || view?.teammatesError != null);
+  const shownLayers = layers.filter((layer) => layer.prs.length > 0 || needsTeamNotice(layer));
+  const teammatesLayer = layers.find((layer) => layer.teammates === "only");
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       {error !== null && (
         <RefreshError
           message={error}
@@ -254,69 +297,244 @@ export function ReviewQueueLists({
         error === null && <Notice>Loading pull requests…</Notice>
       ) : (
         <>
-          <QueueSectionView
-            label="Needs review"
-            section={agentFilter === null ? needsReview : onlyAgentState(needsReview, agentFilter)}
-            count={needsReviewCount}
-            empty={
-              needsReviewCount === 0 ? (
-                <CaughtUp />
-              ) : (
-                <FilteredEmpty showAll={() => setAgentFilter(null)} />
-              )
-            }
-            actions={actions}
-            headerStart={
-              <AgentFilter section={needsReview} active={agentFilter} onChange={setAgentFilter} />
-            }
-            headerEnd={
-              <>
-                <span className="text-xs tabular-nums text-subtle-foreground">
-                  Updated{" "}
-                  <time
-                    dateTime={new Date(view.loadedAt).toISOString()}
-                    title={new Date(view.loadedAt).toLocaleString()}
-                  >
-                    {relativeTime(new Date(view.loadedAt), new Date())}
-                  </time>
-                </span>
-                <RefreshButton refreshing={refreshing} refresh={refresh} />
-              </>
-            }
-            footer={
-              view.truncated && (
-                <p className="px-1 text-xs text-muted-foreground">Showing first 50</p>
-              )
-            }
-          />
-          <QueueSectionView
-            label="Reviewed"
-            section={reviewed}
-            count={countOf(reviewed)}
-            empty={<Notice>No reviewed pull requests</Notice>}
-            actions={actions}
-            collapsible
-          />
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+            <AgentFilter section={waiting} active={agentFilter} onChange={setAgentFilter} />
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {teammatesLayer !== undefined && (
+                <TeamPicker
+                  team={view.teammatesTeam}
+                  pick={(team) => void setTeammatesTeam(team)}
+                />
+              )}
+              <HiddenReposMenu
+                layers={layers}
+                everywhere={view.hiddenEverywhere}
+                show={(repo, scope) => void setRepoHidden(repo, scope, false)}
+              />
+              <span className="text-xs tabular-nums text-subtle-foreground">
+                Updated{" "}
+                <time
+                  dateTime={new Date(view.loadedAt).toISOString()}
+                  title={new Date(view.loadedAt).toLocaleString()}
+                >
+                  {relativeTime(new Date(view.loadedAt), new Date())}
+                </time>
+              </span>
+              <RefreshButton refreshing={refreshing} refresh={refresh} />
+            </div>
+          </div>
+          {shownLayers.length === 0 && <Notice>Nothing to review</Notice>}
+          {shownLayers.map((layer) => (
+            <QueueSectionView
+              key={layer.name}
+              label={layer.name}
+              section={shown(layer.prs)}
+              count={layer.count}
+              empty={
+                agentFilter !== null && layer.prs.length > 0 ? (
+                  <FilteredEmpty showAll={() => setAgentFilter(null)} />
+                ) : view.teammatesTeam === null ? (
+                  <Notice>Pick your team to list your teammates' pull requests here.</Notice>
+                ) : (
+                  <Notice>
+                    Could not read the members of {view.teammatesTeam}: {view.teammatesError}
+                  </Notice>
+                )
+              }
+              actions={actions}
+              repoMenu={(repo) => (
+                <HideRepoMenu
+                  repo={repo}
+                  layer={layer.name}
+                  hide={(scope) => void setRepoHidden(repo, scope, true)}
+                />
+              )}
+              footer={
+                layer.truncated && (
+                  <p className="px-1 text-xs text-muted-foreground">Showing first 50</p>
+                )
+              }
+            />
+          ))}
+          {countOf(view.reviewed) > 0 && (
+            <QueueSectionView
+              label="Reviewed"
+              section={withoutArchivedThreads(view.reviewed)}
+              count={countOf(view.reviewed)}
+              empty={null}
+              actions={actions}
+              collapsible
+              quiet
+            />
+          )}
+          {countOf(view.merged) > 0 && (
+            <QueueSectionView
+              label="Merged"
+              section={withoutArchivedThreads(view.merged)}
+              count={countOf(view.merged)}
+              empty={null}
+              actions={actions}
+              collapsible
+              quiet
+            />
+          )}
+          {countOf(view.ignored) > 0 && (
+            <QueueSectionView
+              label="Ignored"
+              section={withoutArchivedThreads(view.ignored)}
+              count={countOf(view.ignored)}
+              empty={null}
+              actions={actions}
+              collapsible
+              quiet
+            />
+          )}
         </>
       )}
     </div>
   );
 }
 
-function CaughtUp() {
+type TeamsState =
+  | { kind: "loading" }
+  | { kind: "ok"; teams: { team: string; name: string }[] }
+  | { kind: "error"; message: string };
+
+/** Picks the GitHub team whose members are your teammates. Reads your teams when it opens. */
+function TeamPicker({ team, pick }: { team: string | null; pick(team: string | null): void }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [teams, setTeams] = useState<TeamsState>({ kind: "loading" });
+
+  function load(open: boolean) {
+    if (!open) return;
+    setTeams({ kind: "loading" });
+    rpc
+      .call("getViewerTeams", {})
+      .then(setTeams, (failure: unknown) =>
+        setTeams({ kind: "error", message: messageOf(failure) }),
+      );
+  }
+
   return (
-    <div
-      role="status"
-      className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-8 text-center"
-    >
-      <span className="grid size-10 place-items-center rounded-full bg-success/10 duration-500 ease-out animate-in fade-in zoom-in-50 motion-reduce:animate-none">
-        <Icon name="CircleCheck" className="size-5 text-success" />
-      </span>
-      <p className="text-sm font-medium">Nothing to review</p>
-      <p className="text-xs text-muted-foreground">
-        New review requests and new pushes show up here.
-      </p>
-    </div>
+    <DropdownMenu onOpenChange={load}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(ACTION_CLASS, team === null ? "text-foreground" : "text-muted-foreground")}
+        >
+          <Icon name="UserRound" className="size-3.5" />
+          {team ?? "Pick your team"}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuLabel>Your teammates are the members of</DropdownMenuLabel>
+        {teams.kind === "loading" && <DropdownMenuItem disabled>Loading teams…</DropdownMenuItem>}
+        {teams.kind === "error" && (
+          <DropdownMenuItem disabled>Could not read your teams: {teams.message}</DropdownMenuItem>
+        )}
+        {teams.kind === "ok" &&
+          teams.teams.map((entry) => (
+            <DropdownMenuItem key={entry.team} onSelect={() => pick(entry.team)}>
+              <Icon
+                name="Check"
+                className={cn("size-3.5 shrink-0", entry.team !== team && "invisible")}
+              />
+              {entry.name}
+              <span className="truncate text-subtle-foreground">{entry.team}</span>
+            </DropdownMenuItem>
+          ))}
+        {team !== null && (
+          <DropdownMenuItem onSelect={() => pick(null)}>
+            <Icon name="X" className="size-3.5 shrink-0" />
+            No team
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function HideRepoMenu({
+  repo,
+  layer,
+  hide,
+}: {
+  repo: string;
+  layer: string;
+  hide(scope: string | null): void;
+}) {
+  return (
+    <DropdownMenu>
+      <IconTooltip label="Hide repository">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Hide ${repo}`}
+            className={cn(ICON_ACTION_CLASS, "-my-2 size-7 pointer-coarse:size-9")}
+          >
+            <Icon name="MoreHorizontal" className="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+      </IconTooltip>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={() => hide(layer)}>
+          <Icon name="EyeOff" className="size-3.5 shrink-0" />
+          Hide from {layer}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => hide(null)}>
+          <Icon name="EyeOff" className="size-3.5 shrink-0" />
+          Hide everywhere
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function HiddenReposMenu({
+  layers,
+  everywhere,
+  show,
+}: {
+  layers: readonly QueueLayer[];
+  everywhere: readonly string[];
+  show(repo: string, scope: string | null): void;
+}) {
+  const groups = [
+    ...layers
+      .filter((layer) => layer.hiddenRepos.length > 0)
+      .map((layer) => ({
+        label: `Hidden from ${layer.name}`,
+        scope: layer.name,
+        repos: layer.hiddenRepos,
+      })),
+    ...(everywhere.length > 0
+      ? [{ label: "Hidden everywhere", scope: null, repos: everywhere }]
+      : []),
+  ];
+  const count = groups.reduce((sum, group) => sum + group.repos.length, 0);
+  if (count === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className={cn(ACTION_CLASS, "h-8 text-muted-foreground")}>
+          <Icon name="EyeOff" className="size-3.5" />
+          {count} hidden
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {groups.map((group) => (
+          <DropdownMenuGroup key={group.label}>
+            <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+            {group.repos.map((repo) => (
+              <DropdownMenuItem key={repo} onSelect={() => show(repo, group.scope)}>
+                <Icon name="Eye" className="size-3.5 shrink-0" />
+                Show {repo} again
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -394,6 +612,7 @@ interface CardHandlers {
   busy(pr: LinkedQueuePr): boolean;
   selected(pr: LinkedQueuePr): boolean;
   mark(pr: LinkedQueuePr, reviewed: boolean): void;
+  ignore(pr: LinkedQueuePr, ignored: boolean): void;
   archive(pr: LinkedQueuePr, threadId: string): void;
 }
 
@@ -403,10 +622,11 @@ interface QueueSectionViewProps {
   count: number;
   empty: ReactNode;
   actions: CardHandlers;
-  headerStart?: ReactNode;
   headerEnd?: ReactNode;
   footer?: ReactNode;
   collapsible?: boolean;
+  quiet?: boolean;
+  repoMenu?(repo: string): ReactNode;
 }
 
 function QueueSectionView({
@@ -415,10 +635,11 @@ function QueueSectionView({
   count,
   empty,
   actions,
-  headerStart,
   headerEnd,
   footer,
   collapsible = false,
+  quiet = false,
+  repoMenu,
 }: QueueSectionViewProps) {
   const [expanded, setExpanded] = useState(!collapsible);
   const title = (
@@ -430,14 +651,14 @@ function QueueSectionView({
     </>
   );
   return (
-    <section aria-label={label} className="@container flex min-w-0 flex-col gap-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+    <section aria-label={label} className="@container flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
         <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
           {collapsible ? (
             <button
               type="button"
               aria-expanded={expanded}
-              className="-mx-2 inline-flex h-9 cursor-pointer items-center gap-2 rounded-md px-2 transition-colors duration-150 hover:bg-state-hover hover:duration-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="-mx-2 inline-flex h-7 cursor-pointer items-center gap-2 rounded-md px-2 transition-colors duration-150 hover:bg-state-hover hover:duration-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={() => setExpanded((open) => !open)}
             >
               <Icon
@@ -453,7 +674,6 @@ function QueueSectionView({
             title
           )}
         </h2>
-        {headerStart}
         {headerEnd !== undefined && (
           <div className="ml-auto flex shrink-0 items-center gap-2">{headerEnd}</div>
         )}
@@ -462,7 +682,7 @@ function QueueSectionView({
         (section.length === 0
           ? empty
           : section.map((group) => (
-              <div key={group.repo} className="flex min-w-0 flex-col gap-1.5">
+              <div key={group.repo} className="flex min-w-0 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-1.5 px-1 text-xs">
                   <Icon name="FolderGit" className="size-3.5 shrink-0 text-subtle-foreground" />
                   <h3
@@ -480,29 +700,17 @@ function QueueSectionView({
                       No bb project for this repository
                     </span>
                   )}
+                  {repoMenu?.(group.repo)}
                 </div>
                 <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
                   {group.prs.map((pr) => (
-                    <QueueRow
-                      key={pr.number}
-                      pr={pr}
-                      actions={actions}
-                      quiet={label === "Reviewed"}
-                    />
+                    <QueueRow key={pr.number} pr={pr} actions={actions} quiet={quiet} />
                   ))}
                 </ul>
               </div>
             )))}
       {footer}
     </section>
-  );
-}
-
-function Separator() {
-  return (
-    <span aria-hidden="true" className="text-subtle-foreground">
-      ·
-    </span>
   );
 }
 
@@ -515,94 +723,102 @@ function QueueRow({
   actions: CardHandlers;
   quiet: boolean;
 }) {
+  const navigation = usePullRequestsNavigation();
   const ci = CI_MARK[pr.ci];
   const decision = pr.reviewDecision === null ? null : REVIEW_DECISION_LABEL[pr.reviewDecision];
   const attention = attentionLabels(pr);
   const state = STATE_LABEL[pr.state];
   const draft = pr.draft && state === null;
   const selected = actions.selected(pr);
+  const skipped = pr.skipLabel !== null;
   return (
     <li
       aria-label={`${pr.repo}#${pr.number}`}
       aria-current={selected || undefined}
       className={cn(
-        "grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-3 py-3 @lg:grid-cols-[1rem_minmax(0,1fr)_auto]",
+        "flex min-w-0 items-center gap-1 pr-1.5 transition-colors duration-150 hover:bg-state-hover hover:duration-0",
         selected && "bg-state-hover",
+        skipped && "opacity-60",
       )}
     >
-      <IconTooltip label={ci.text}>
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`${selected ? "Hide" : "Show"} overview of #${pr.number} ${pr.title}`}
+        title={selected ? "Hide overview" : "Show overview"}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 self-stretch py-2 pl-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={() => navigation.go({ kind: "list", selected: selected ? null : refOf(pr) })}
+      >
         <span
           data-testid="queue-ci"
           role="img"
           aria-label={ci.text}
-          tabIndex={0}
-          className="mt-0.5 flex size-4 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          title={ci.text}
+          className="flex size-4 shrink-0 items-center justify-center"
         >
           <Icon name={ci.icon} className={cn("size-4", ci.className)} />
         </span>
-      </IconTooltip>
-      <div className="flex min-w-0 flex-col gap-1">
-        <h4
+        <span
           className={cn(
-            "min-w-0 break-words text-sm font-semibold",
-            quiet && "font-medium text-muted-foreground",
+            "min-w-0 flex-1 truncate text-sm font-medium",
+            (quiet || skipped) && "text-muted-foreground",
           )}
+          title={pr.title}
         >
           <span className="font-mono text-xs font-normal tabular-nums text-subtle-foreground">
             #{pr.number}
           </span>{" "}
           {pr.title}
-        </h4>
-        <div
+        </span>
+        <span
           data-testid="queue-meta"
-          className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground"
+          className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
         >
-          {pr.author !== null && (
-            <>
-              <span className="min-w-0 truncate">{pr.author}</span>
-              <Separator />
-            </>
+          {pr.skipLabel !== null && (
+            <span
+              data-testid="queue-skip-label"
+              className={cn(LABEL_CLASS, "border-attention/50 py-0 uppercase tracking-wide")}
+            >
+              {pr.skipLabel}
+            </span>
           )}
-          <time
-            dateTime={pr.updatedAt}
-            title={new Date(pr.updatedAt).toLocaleString()}
-            className="shrink-0 tabular-nums"
-          >
-            {relativeTime(new Date(pr.updatedAt), new Date())}
-          </time>
-          {decision !== null && (
-            <>
-              <Separator />
-              <span
-                data-testid="queue-review-decision"
-                className={cn("shrink-0", decision.className)}
-              >
-                {decision.text}
-              </span>
-            </>
-          )}
-          {(draft || state !== null || attention.length > 0) && <span className="w-1" />}
           {state !== null && (
-            <span className={cn(LABEL_CLASS, "flex items-center gap-1", state.className)}>
+            <span className={cn(LABEL_CLASS, "flex items-center gap-1 py-0", state.className)}>
               <Icon name={state.icon} className="size-3" />
               {state.text}
             </span>
           )}
-          {draft && <span className={LABEL_CLASS}>Draft</span>}
+          {draft && <span className={cn(LABEL_CLASS, "py-0")}>Draft</span>}
           {attention.map(({ icon, text }) => (
             <span
               key={text}
               className={cn(
                 LABEL_CLASS,
-                "flex items-center gap-1 border-attention/50 bg-attention/10 text-foreground",
+                "flex items-center gap-1 border-attention/50 bg-attention/10 py-0 text-foreground",
               )}
             >
               <Icon name={icon} className="size-3 text-attention" />
               {text}
             </span>
           ))}
-        </div>
-      </div>
+          {decision !== null && (
+            <span
+              data-testid="queue-review-decision"
+              className={cn("hidden @md:inline", decision.className)}
+            >
+              {decision.text}
+            </span>
+          )}
+          {pr.author !== null && <Avatar login={pr.author} url={pr.authorAvatarUrl} labelled />}
+          <time
+            dateTime={pr.createdAt}
+            title={`Opened ${new Date(pr.createdAt).toLocaleString()}, updated ${new Date(pr.updatedAt).toLocaleString()}`}
+            className="w-20 shrink-0 text-right tabular-nums"
+          >
+            {relativeTime(new Date(pr.createdAt), new Date())}
+          </time>
+        </span>
+      </button>
       <RowActions pr={pr} actions={actions} />
     </li>
   );
@@ -610,76 +826,67 @@ function QueueRow({
 
 function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers }) {
   const navigation = usePullRequestsNavigation();
+  const bbNavigate = useBbNavigate();
   const thread = pr.thread;
   const busy = actions.busy(pr);
   const reviewed = isReviewed(pr);
-  const markLabel = reviewed ? "Mark as needs review" : "Mark reviewed";
-  const overviewShown = actions.selected(pr);
-  const overviewLabel = overviewShown ? "Hide overview" : "Show overview";
   const archiveThreadId = thread?.isReviewThread ? thread.id : null;
   return (
-    <div className="col-start-2 -ml-2 flex flex-wrap items-center gap-0.5 @lg:col-start-3 @lg:row-start-1 @lg:-mr-1.5 @lg:ml-0 @lg:self-center">
-      <div className="ml-2 mr-1 flex shrink-0 empty:hidden @lg:ml-0 @lg:min-w-36 @lg:justify-end @lg:empty:block">
-        {thread !== null ? (
-          <ThreadStatusButton
-            state={agentStateOf(thread)}
-            onClick={() => navigation.toThread(thread.id)}
-          />
-        ) : (
-          pr.projectIds.length > 0 && (
-            <PillButton
-              toneClass={NEUTRAL_PILL_TONE}
-              leading={<Icon name="MessageSquarePlus" className="size-3.5 shrink-0" />}
-              onClick={() => navigation.go({ kind: "review", repo: pr.repo, number: pr.number })}
-            >
-              Start review
-            </PillButton>
-          )
-        )}
-      </div>
-      <IconTooltip
-        label={archiveThreadId !== null ? "Archive thread" : "Only review threads can be archived"}
-      >
-        <button
-          type="button"
-          aria-label="Archive thread"
-          aria-disabled={archiveThreadId !== null ? undefined : true}
-          className={ICON_ACTION_CLASS}
-          onClick={() => {
-            if (archiveThreadId !== null) actions.archive(pr, archiveThreadId);
-          }}
-          disabled={archiveThreadId !== null && busy}
-        >
-          <Icon name="Archive" className="size-4" />
-        </button>
-      </IconTooltip>
-      <IconTooltip label={markLabel}>
-        <button
-          type="button"
-          aria-label={markLabel}
-          className={cn(ICON_ACTION_CLASS, !reviewed && "hover:text-success")}
-          onClick={() => actions.mark(pr, !reviewed)}
-          disabled={busy}
-        >
-          <Icon
-            name={busy ? "Loading" : reviewed ? "RotateCcw" : "Check"}
-            className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")}
-          />
-        </button>
-      </IconTooltip>
-      <IconTooltip label={overviewLabel}>
-        <button
-          type="button"
-          aria-label={overviewLabel}
-          className={cn(ICON_ACTION_CLASS, overviewShown && "bg-state-active text-foreground")}
-          onClick={() =>
-            navigation.go({ kind: "list", selected: overviewShown ? null : refOf(pr) })
-          }
-        >
-          <Icon name="Github" className="size-4" />
-        </button>
-      </IconTooltip>
-    </div>
+    <>
+      {thread !== null ? (
+        <ThreadStatusButton
+          state={agentStateOf(thread)}
+          onClick={() => navigation.toThread(thread.id)}
+        />
+      ) : (
+        pr.projectIds.length > 0 && (
+          <PillButton
+            toneClass={NEUTRAL_PILL_TONE}
+            leading={<Icon name="MessageSquarePlus" className="size-3.5 shrink-0" />}
+            onClick={() => navigation.go({ kind: "review", repo: pr.repo, number: pr.number })}
+          >
+            Start review
+          </PillButton>
+        )
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="More actions"
+            className={cn(ICON_ACTION_CLASS, "size-8 pointer-coarse:size-10")}
+            disabled={busy}
+          >
+            <Icon
+              name={busy ? "Loading" : "MoreHorizontal"}
+              className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")}
+            />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onSelect={() => bbNavigate.openUrl(pr.url)}>
+            <Icon name="ExternalLink" className="size-3.5 shrink-0" />
+            Open in GitHub
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => actions.mark(pr, !reviewed)}>
+            <Icon name={reviewed ? "RotateCcw" : "Check"} className="size-3.5 shrink-0" />
+            {reviewed ? "Mark as needs review" : "Mark reviewed"}
+          </DropdownMenuItem>
+          {pr.state === "open" && (
+            <DropdownMenuItem onSelect={() => actions.ignore(pr, !pr.ignored)}>
+              <Icon name={pr.ignored ? "Eye" : "EyeOff"} className="size-3.5 shrink-0" />
+              {pr.ignored ? "Stop ignoring" : "Ignore"}
+            </DropdownMenuItem>
+          )}
+          {archiveThreadId !== null && (
+            <DropdownMenuItem onSelect={() => actions.archive(pr, archiveThreadId)}>
+              <Icon name="Archive" className="size-3.5 shrink-0" />
+              Archive thread
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 

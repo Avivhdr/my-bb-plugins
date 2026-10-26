@@ -1,5 +1,5 @@
 import type { PullRequestRef } from "../core/pr-ref";
-import { REVIEW_QUEUE_PAGE_SIZE, trackedAlias } from "../core/review-queue";
+import { layerAlias, REVIEW_QUEUE_PAGE_SIZE, trackedAlias } from "../core/review-queue";
 
 const PR_FRAGMENT = `
 fragment QueuePr on PullRequest {
@@ -12,11 +12,12 @@ fragment QueuePr on PullRequest {
   isDraft
   createdAt
   updatedAt
-  author { login }
+  author { login avatarUrl(size: 40) }
   repository { nameWithOwner }
   headRefName
   headRefOid
   reviewDecision
+  labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 }
 `;
@@ -35,23 +36,31 @@ fragment QueueActivity on PullRequest {
 
 const BATCH_SIZE = 8;
 
-const REVIEW_REQUESTS = `  reviewRequests: search(type: ISSUE, first: ${REVIEW_QUEUE_PAGE_SIZE}, query: "is:pr is:open review-requested:@me") {
-    issueCount
-    nodes { ...QueuePr }
-  }
-`;
-
 interface IndexedRef {
   ref: PullRequestRef;
   index: number;
 }
 
-function variableDefinitions(tracked: readonly IndexedRef[]): string {
-  if (tracked.length === 0) return "";
-  const definitions = tracked.map(
-    ({ index: i }) => `$o${i}: String!, $r${i}: String!, $n${i}: Int!`,
-  );
-  return `(${definitions.join(", ")})`;
+function variableDefinitions(layerCount: number, tracked: readonly IndexedRef[]): string {
+  const definitions = [
+    ...Array.from({ length: layerCount }, (_, i) => `$q${i}: String!`),
+    ...tracked.map(({ index: i }) => `$o${i}: String!, $r${i}: String!, $n${i}: Int!`),
+  ];
+  return definitions.length === 0 ? "" : `(${definitions.join(", ")})`;
+}
+
+function layerFields(layerCount: number): string {
+  return Array.from(
+    { length: layerCount },
+    (
+      _,
+      i,
+    ) => `  ${layerAlias(i)}: search(type: ISSUE, first: ${REVIEW_QUEUE_PAGE_SIZE}, query: $q${i}) {
+    issueCount
+    nodes { ...QueuePr }
+  }
+`,
+  ).join("");
 }
 
 function trackedFields(tracked: readonly IndexedRef[]): string {
@@ -74,20 +83,25 @@ function variableArgs(tracked: readonly IndexedRef[]): string[] {
   ]);
 }
 
-function queryArgs(tracked: readonly IndexedRef[], extraFields: string): string[] {
+function queryArgs(layerQueries: readonly string[], tracked: readonly IndexedRef[]): string[] {
   const query = `
-query${variableDefinitions(tracked)} {
+query${variableDefinitions(layerQueries.length, tracked)} {
   viewer { login }
-${extraFields}${trackedFields(tracked)}}
+${layerFields(layerQueries.length)}${trackedFields(tracked)}}
 ${PR_FRAGMENT}${tracked.length === 0 ? "" : ACTIVITY_FRAGMENT}`;
-  return ["api", "graphql", "-f", `query=${query}`, ...variableArgs(tracked)];
+  const layerArgs = layerQueries.flatMap((layerQuery, i) => ["-f", `q${i}=${layerQuery}`]);
+  return ["api", "graphql", "-f", `query=${query}`, ...layerArgs, ...variableArgs(tracked)];
 }
 
-export function reviewQueueBatchArgs(tracked: readonly PullRequestRef[]): string[][] {
+/** One search per layer in the first request, and the tracked PRs, 8 per request. */
+export function reviewQueueBatchArgs(
+  layerQueries: readonly string[],
+  tracked: readonly PullRequestRef[],
+): string[][] {
   const refs = tracked.map((ref, index) => ({ ref, index }));
-  const batches = [queryArgs(refs.slice(0, BATCH_SIZE), REVIEW_REQUESTS)];
+  const batches = [queryArgs(layerQueries, refs.slice(0, BATCH_SIZE))];
   for (let start = BATCH_SIZE; start < refs.length; start += BATCH_SIZE) {
-    batches.push(queryArgs(refs.slice(start, start + BATCH_SIZE), ""));
+    batches.push(queryArgs([], refs.slice(start, start + BATCH_SIZE)));
   }
   return batches;
 }

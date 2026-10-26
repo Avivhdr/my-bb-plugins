@@ -1,14 +1,62 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`reviewQueueBatchArgs first request > asks for each layer in its own GraphQL search when nothing is tracked 1`] = `
+[
+  "api",
+  "graphql",
+  "-f",
+  "query=
+query($q0: String!, $q1: String!) {
+  viewer { login }
+  l0: search(type: ISSUE, first: 50, query: $q0) {
+    issueCount
+    nodes { ...QueuePr }
+  }
+  l1: search(type: ISSUE, first: 50, query: $q1) {
+    issueCount
+    nodes { ...QueuePr }
+  }
+}
+
+fragment QueuePr on PullRequest {
+  number
+  title
+  url
+  state
+  mergedAt
+  closedAt
+  isDraft
+  createdAt
+  updatedAt
+  author { login avatarUrl(size: 40) }
+  repository { nameWithOwner }
+  headRefName
+  headRefOid
+  reviewDecision
+  labels(first: 20) { nodes { name } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}
+",
+  "-f",
+  "q0=is:pr is:open user-review-requested:@me",
+  "-f",
+  "q1=is:pr is:open review-requested:@me -label:"DO NOT REVIEW"",
+]
+`;
+
 exports[`reviewQueueBatchArgs first request > asks for each tracked PR by repository and number in the same request 1`] = `
 [
   "api",
   "graphql",
   "-f",
   "query=
-query($o0: String!, $r0: String!, $n0: Int!, $o1: String!, $r1: String!, $n1: Int!) {
+query($q0: String!, $q1: String!, $o0: String!, $r0: String!, $n0: Int!, $o1: String!, $r1: String!, $n1: Int!) {
   viewer { login }
-  reviewRequests: search(type: ISSUE, first: 50, query: "is:pr is:open review-requested:@me") {
+  l0: search(type: ISSUE, first: 50, query: $q0) {
+    issueCount
+    nodes { ...QueuePr }
+  }
+  l1: search(type: ISSUE, first: 50, query: $q1) {
     issueCount
     nodes { ...QueuePr }
   }
@@ -26,11 +74,12 @@ fragment QueuePr on PullRequest {
   isDraft
   createdAt
   updatedAt
-  author { login }
+  author { login avatarUrl(size: 40) }
   repository { nameWithOwner }
   headRefName
   headRefOid
   reviewDecision
+  labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 }
 
@@ -45,6 +94,10 @@ fragment QueueActivity on PullRequest {
 }
 ",
   "-f",
+  "q0=is:pr is:open user-review-requested:@me",
+  "-f",
+  "q1=is:pr is:open review-requested:@me -label:"DO NOT REVIEW"",
+  "-f",
   "o0=acme",
   "-f",
   "r0=api",
@@ -56,40 +109,5 @@ fragment QueueActivity on PullRequest {
   "r1=web",
   "-F",
   "n1=3",
-]
-`;
-
-exports[`reviewQueueBatchArgs first request > asks for the review requests in one GraphQL search when nothing is tracked 1`] = `
-[
-  "api",
-  "graphql",
-  "-f",
-  "query=
-query {
-  viewer { login }
-  reviewRequests: search(type: ISSUE, first: 50, query: "is:pr is:open review-requested:@me") {
-    issueCount
-    nodes { ...QueuePr }
-  }
-}
-
-fragment QueuePr on PullRequest {
-  number
-  title
-  url
-  state
-  mergedAt
-  closedAt
-  isDraft
-  createdAt
-  updatedAt
-  author { login }
-  repository { nameWithOwner }
-  headRefName
-  headRefOid
-  reviewDecision
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-}
-",
 ]
 `;

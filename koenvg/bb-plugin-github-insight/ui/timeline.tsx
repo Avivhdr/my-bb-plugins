@@ -23,6 +23,7 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { QUIET_BUTTON, SECONDARY_BUTTON } from "./controls";
 import { messageOf } from "./error-message";
+import { JUMPED_RING } from "./controls";
 import { useShowFiles } from "./files-jump";
 import { NewCommentGlowContext, useNewComment, useNewCommentGlowState } from "./new-comment-glow";
 import "./new-comment.css";
@@ -558,7 +559,7 @@ function CommentCard({ commentId, children }: { commentId: string; children: Rea
     <div
       ref={ref}
       data-timeline-comment-id={commentId}
-      className={cn(CARD_CLASS, glowing && "review-comment-new")}
+      className={cn(CARD_CLASS, JUMPED_RING, glowing && "review-comment-new")}
     >
       {children}
     </div>

@@ -7,6 +7,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import type { LinkedQueuePr, ReviewQueueView, rpcContract } from "../contract";
 import { buildReviewPrompt } from "../core/review-prompt";
+import { viewPrs } from "../core/review-queue-view";
 import { Icon } from "@/components/ui/icon";
 import { messageOf } from "./error-message";
 import { Notice } from "./feedback";
@@ -16,6 +17,7 @@ import {
   type PullRequestsRoute,
 } from "./pull-requests-routes";
 import type { ReviewQueueState } from "./use-review-queue";
+import { useReviewInstructions } from "./use-review-instructions";
 
 type ReviewEnvironment = NewThreadComposerProps["defaultEnvironment"];
 
@@ -53,12 +55,12 @@ type ReviewRoute = Extract<PullRequestsRoute, { kind: "review" }>;
 
 function findReviewRequest(view: ReviewQueueView | null, route: ReviewRoute): LinkedQueuePr | null {
   const repo = route.repo.toLowerCase();
-  for (const group of [...(view?.needsReview ?? []), ...(view?.reviewed ?? [])]) {
-    if (group.repo.toLowerCase() !== repo) continue;
-    const pr = group.prs.find((candidate) => candidate.number === route.number);
-    if (pr !== undefined) return pr;
-  }
-  return null;
+  if (view === null) return null;
+  return (
+    viewPrs(view).find(
+      (candidate) => candidate.repo.toLowerCase() === repo && candidate.number === route.number,
+    ) ?? null
+  );
 }
 
 export function ReviewComposerPage({
@@ -108,6 +110,7 @@ function ReviewComposer({ pr, projectId }: { pr: LinkedQueuePr; projectId: strin
   const navigation = usePullRequestsNavigation();
   const [error, setError] = useState<string | null>(null);
   const { settled, environment } = useReviewEnvironment();
+  const instructions = useReviewInstructions();
 
   async function submit(request: NewThreadRequest) {
     setError(null);
@@ -124,7 +127,7 @@ function ReviewComposer({ pr, projectId }: { pr: LinkedQueuePr; projectId: strin
     }
   }
 
-  if (!settled) return <Notice>Loading pull request…</Notice>;
+  if (!settled || instructions === null) return <Notice>Loading pull request…</Notice>;
 
   return (
     <>
@@ -141,7 +144,7 @@ function ReviewComposer({ pr, projectId }: { pr: LinkedQueuePr; projectId: strin
         className="min-h-0 flex-1"
         defaultProjectId={projectId}
         defaultEnvironment={environment}
-        initialPrompt={buildReviewPrompt(pr)}
+        initialPrompt={buildReviewPrompt(pr, instructions)}
         draftKey={`github-insight:review:${pr.repo}#${pr.number}`}
         onSubmit={submit}
       />

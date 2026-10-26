@@ -2,15 +2,14 @@ import { useCallback, useEffect } from "react";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { LoadedReviewQueue, rpcContract } from "../contract";
 import { readReviewQueueUpdate, REVIEW_QUEUE_UPDATED_CHANNEL } from "../core/review-queue-updated";
+import { viewPrs } from "../core/review-queue-view";
 
 function cameBackWhileOpen(update: LoadedReviewQueue, threadId: string): boolean {
   const view = update.kind === "ok" ? update : update.lastGood;
   if (view === null) return false;
-  return [...view.needsReview, ...view.reviewed].some((group) =>
-    group.prs.some(
-      ({ thread }) =>
-        thread?.id === threadId && (thread.returned === "finished" || thread.returned === "failed"),
-    ),
+  return viewPrs(view).some(
+    ({ thread }) =>
+      thread?.id === threadId && (thread.returned === "finished" || thread.returned === "failed"),
   );
 }
 
