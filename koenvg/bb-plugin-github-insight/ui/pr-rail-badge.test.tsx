@@ -10,6 +10,7 @@ import {
   ok,
   panelRpc,
   queuePr,
+  reviewThread,
   view,
   type QueueHandler,
 } from "../test/review-queue-fixtures";
@@ -54,7 +55,7 @@ describe("Pull Requests rail badge", () => {
 
     const count = await within(item).findByTestId("rail-review-count");
     expect(count.textContent).toBe("1 pull request needs review, new");
-    expect(count.className).toContain("bg-primary");
+    expect(count.className).toContain("bg-red-600");
   });
 
   it("shows the dot when a review agent came back", async () => {
@@ -63,6 +64,34 @@ describe("Pull Requests rail badge", () => {
 
     expect(await within(item).findByRole("img", { name: "Review agent came back" })).toBeDefined();
     expect(within(item).queryByTestId("rail-review-count")).toBeNull();
+  });
+
+  it("splits the count into waiting, in progress, and ready", async () => {
+    const item = addRailItem();
+    const finished = { ...reviewThread, status: "idle", returned: "finished" } as const;
+    renderOverlay(() =>
+      ok({
+        ...view([
+          queuePr({ thread: finished }),
+          queuePr({ number: 16, thread: reviewThread }),
+          queuePr({ number: 17, thread: reviewThread }),
+          queuePr({ number: 18 }),
+          queuePr({ number: 19, review: "reviewed", thread: finished }),
+        ]),
+        hasReturned: true,
+      }),
+    );
+
+    const waiting = await within(item).findByTestId("rail-review-count");
+    expect(waiting.textContent).toBe("1 pull request needs review");
+    expect(waiting.className).toContain("bg-red-600");
+    const inProgress = within(item).getByTestId("rail-in-progress-count");
+    expect(inProgress.textContent).toBe("2 reviews in progress");
+    expect(inProgress.className).toContain("bg-orange-500");
+    const ready = within(item).getByTestId("rail-ready-count");
+    expect(ready.textContent).toBe("1 review ready for you");
+    expect(ready.className).toContain("bg-green-600");
+    expect(within(item).queryByRole("img", { name: "Review agent came back" })).toBeNull();
   });
 
   it("attaches once the rail item appears", async () => {
@@ -126,5 +155,26 @@ describe("Pull Requests rail activity dot", () => {
     const dot = await within(item).findByTestId("rail-activity-dot");
     expect(dot.getAttribute("aria-label")).toBe("1 unread comments");
     expect(within(item).queryByTestId("rail-review-count")).toBeNull();
+  });
+});
+
+describe("Pull Requests rail ready count", () => {
+  it("moves the activity dot aside to make room for the ready count", async () => {
+    const item = addRailItem();
+    const finished = { ...reviewThread, status: "idle", returned: "finished" } as const;
+    renderSlot<object, typeof rpcContract>(
+      { component: overlay.component },
+      {},
+      {
+        rpc: {
+          ...panelRpc(() => ok({ ...view([queuePr({ thread: finished })]), hasReturned: true })),
+          getActivity: () => activityOk([activityPr([activityItem()])]),
+        },
+      },
+    );
+
+    await within(item).findByTestId("rail-ready-count");
+    const dot = await within(item).findByTestId("rail-activity-dot");
+    expect(dot.className).toContain("right-1/2");
   });
 });
