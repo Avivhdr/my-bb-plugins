@@ -16,9 +16,8 @@ describe("list preferences", () => {
     const storage = memory();
     const next = {
       ...DEFAULT_PREFERENCES,
-      tab: "all" as const,
+      tab: "later" as const,
       mode: "machine" as const,
-      lifecycles: ["active", "archived"] as const,
       collapsedGroups: ["machine:m1"],
     };
     savePreferences(next, storage);
@@ -36,7 +35,6 @@ describe("list preferences", () => {
         version: 1,
         mode: "invalid",
         tab: "focus",
-        lifecycles: [],
         sort: "title",
         collapsedGroups: [4, "project:p1"],
         foreign: "data",
@@ -49,7 +47,7 @@ describe("list preferences", () => {
     });
   });
 
-  it("opens on Needs attention when no tab was saved", () => {
+  it("opens on Now when no tab was saved, or when the removed All tab was saved", () => {
     const storage = memory();
     expect(readPreferences(storage).tab).toBe("attention");
     storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, mode: "machine" }));
@@ -58,5 +56,7 @@ describe("list preferences", () => {
       mode: "machine",
       tab: "attention",
     });
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tab: "all" }));
+    expect(readPreferences(storage).tab).toBe("attention");
   });
 });

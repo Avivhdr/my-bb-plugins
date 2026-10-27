@@ -101,7 +101,7 @@ describe("tabFor", () => {
 describe("tabFor with an active descendant", () => {
   it.each<[string, Partial<PluginSidebarThread>, PrSummary | null, "attention" | "inflight"]>([
     ["is idle without a PR", {}, null, "inflight"],
-    ["has unread output", { isUnread: true }, null, "attention"],
+    ["has unread output", { isUnread: true }, null, "inflight"],
     ["waits for an approval", { hasPendingInteraction: true }, null, "attention"],
     ["has failed checks", {}, pr(["checks_failed"]), "inflight"],
     ["has a failed queue entry", {}, queued("failed"), "inflight"],

@@ -37,6 +37,7 @@ import {
   createSection,
   groupMenuItems,
   newThreadScope,
+  parkMenuItems,
   snoozeMenuItems,
   threadMenuItems,
 } from "./thread-actions";
@@ -45,6 +46,7 @@ import { Tip } from "./tip";
 import { PrBadgeView } from "./pr-badge";
 import { readSummary, type PrSummary } from "./pr-insight";
 import { useSummaries } from "./use-summaries";
+import { useParks, type ParkControls } from "./use-parks";
 import {
   createSnoozeClient,
   SnoozeOwner,
@@ -58,9 +60,9 @@ import {
   buildForest,
   visibleItems,
   naturalTreePlacements,
+  parkedThreads,
   retainedTreePlacement,
   type TreePlacement,
-  type Lifecycle,
   type ListItem,
   type ListOptions,
   type SortField,
@@ -236,11 +238,17 @@ function ThreadRow({
   detailed,
   wakeAt,
   snoozes,
+  parked,
+  parks,
+  threads,
 }: {
   provider: Provider;
   detailed: boolean;
   wakeAt: number | undefined;
   snoozes: SnoozeControls;
+  parked: boolean;
+  parks: ParkControls;
+  threads: readonly PluginSidebarThread[];
   pullRequest: PrSummary | null;
   item: Extract<ListItem, { kind: "thread" }>;
   activeThreadId: string | null;
@@ -344,6 +352,7 @@ function ThreadRow({
                 label={`Actions for ${thread.displayTitle}`}
                 items={[
                   ...snoozeMenuItems(thread, wakeAt, snoozes),
+                  ...parkMenuItems(thread, parked, threads, parks),
                   ...threadMenuItems(
                     thread,
                     actions,
@@ -378,15 +387,9 @@ function ThreadRow({
 }
 
 const TABS: { value: Tab; label: string; empty: string }[] = [
-  { value: "attention", label: "Needs attention", empty: "Nothing needs you." },
+  { value: "attention", label: "Now", empty: "Nothing needs you now." },
   { value: "inflight", label: "In flight", empty: "Nothing in flight." },
-  { value: "all", label: "All", empty: "No threads" },
-];
-const ACTIVE_ONLY: readonly Lifecycle[] = ["active"];
-const LIFECYCLES: [readonly Lifecycle[], string][] = [
-  [["active"], "Active"],
-  [["archived"], "Archived"],
-  [["active", "archived"], "Both"],
+  { value: "later", label: "Later", empty: "Nothing parked for later." },
 ];
 
 const BY_DATE: [ListOptions["direction"], string][] = [
@@ -418,17 +421,7 @@ function listOptionItems(
       checked: prefs[key] === value,
       run: () => update({ [key]: value }),
     }));
-  const lifecycles =
-    prefs.tab === "all"
-      ? LIFECYCLES.map(([value, label]): MenuItem => ({
-          section: "Show",
-          label,
-          checked: prefs.lifecycles.join(",") === value.join(","),
-          run: () => update({ lifecycles: value }),
-        }))
-      : [];
   return [
-    ...lifecycles,
     ...radio("Group by", "mode", [
       ["project", "Project"],
       ["machine", "Machine"],
@@ -507,7 +500,6 @@ function GroupHeader({
   onNewThread: (() => void) | null;
   menu: MenuItem[];
 }) {
-  const urgent = item.scope.kind === "attention";
   const badge =
     item.scope.kind === "project" ? projectBadge(item.scope.projectId, item.label) : null;
   return (
@@ -531,16 +523,9 @@ function GroupHeader({
             {badge.letter}
           </span>
         ) : null}
-        <span
-          className={`pointer-events-none min-w-0 flex-1 truncate text-[13px] font-semibold ${urgent ? "text-destructive" : "text-foreground/90"}`}
-        >
+        <span className="pointer-events-none min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground/90">
           {item.label}
         </span>
-        {urgent ? (
-          <span className="pointer-events-none shrink-0 rounded-full bg-destructive/10 px-1.5 text-[11px] font-medium leading-4 tabular-nums text-destructive">
-            {item.count}
-          </span>
-        ) : null}
         {onNewThread ? (
           <button
             type="button"
@@ -569,17 +554,8 @@ function GroupHeader({
 
 function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient }) {
   const [prefs, setPrefs] = useState(readPreferences);
-  const lifecycles = prefs.tab === "all" ? prefs.lifecycles : ACTIVE_ONLY;
-  const {
-    status,
-    threads,
-    projects,
-    sections,
-    experimental_archived: archived,
-  } = experimental_useSidebarThreads({ experimental_lifecycles: lifecycles });
-  // Display lifecycle filters must not change selection eligibility or tree identity.
-  const { threads: activeThreads } = experimental_useSidebarThreads({
-    experimental_lifecycles: ACTIVE_ONLY,
+  const { status, threads, projects, sections } = experimental_useSidebarThreads({
+    experimental_lifecycles: ["active"],
   });
   const actions = useThreadListNavigation();
   const sdk = useSdk();
@@ -615,9 +591,11 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
       );
   }, [threads]);
   const snoozes = useSnoozeControls(props.snoozeClient);
+  const parks = useParks();
+  const parked = useMemo(() => parkedThreads(threads, parks.explicit), [threads, parks.explicit]);
   const placements = useMemo(
-    () => naturalTreePlacements(activeThreads, pullRequests, snoozes.snoozed),
-    [activeThreads, pullRequests, snoozes.snoozed],
+    () => naturalTreePlacements(threads, pullRequests, snoozes.snoozed, parked),
+    [threads, pullRequests, snoozes.snoozed, parked],
   );
   const committed = useRef<{
     placements: ReadonlyMap<string, TreePlacement>;
@@ -628,7 +606,7 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   const priorPlacement = props.activeThreadId
     ? previous.placements.get(props.activeThreadId)
     : undefined;
-  const { heldTree, followInFlight } = retainedTreePlacement(
+  const { heldTree, followFrom } = retainedTreePlacement(
     selected,
     previous.heldTree,
     priorPlacement,
@@ -636,15 +614,25 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   // Derive before rendering; only committed renders may supply transition history.
   useLayoutEffect(() => {
     committed.current = { placements, heldTree };
-    if (followInFlight && prefs.tab === "attention") {
+    if (followFrom && prefs.tab === followFrom) {
       setPrefs((current) =>
-        current.tab === "attention" ? { ...current, tab: "inflight" } : current,
+        current.tab === followFrom ? { ...current, tab: "inflight" } : current,
       );
     }
-  }, [placements, heldTree, followInFlight, prefs.tab]);
+  }, [placements, heldTree, followFrom, prefs.tab]);
   const items = useMemo(
-    () => visibleItems(threads, projects, sections, prefs, pullRequests, snoozes.snoozed, heldTree),
-    [threads, projects, sections, prefs, pullRequests, snoozes.snoozed, heldTree],
+    () =>
+      visibleItems(
+        threads,
+        projects,
+        sections,
+        prefs,
+        pullRequests,
+        snoozes.snoozed,
+        heldTree,
+        parked,
+      ),
+    [threads, projects, sections, prefs, pullRequests, snoozes.snoozed, heldTree, parked],
   );
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -715,9 +703,6 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
       : null;
   };
   const panelId = useId();
-  const showArchive = lifecycles.includes("archived");
-  const archiveLoading = showArchive && archived?.status === "loading";
-  const archiveError = showArchive && archived?.status === "error";
   return (
     <div className="flex h-full min-h-0 flex-col p-2 text-sm text-foreground">
       <div className="mb-1 flex h-8 shrink-0 items-center gap-1">
@@ -757,17 +742,7 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
       >
         {status === "loading" ? <p role="status">Loading threads…</p> : null}
         {status === "error" ? <p role="alert">Threads are unavailable.</p> : null}
-        {archiveLoading ? (
-          <p role="status" className="p-2 text-muted-foreground">
-            Loading archived threads…
-          </p>
-        ) : null}
-        {archiveError ? (
-          <p role="alert" className="p-2 text-destructive">
-            Archived threads are unavailable.
-          </p>
-        ) : null}
-        {status === "ready" && !archiveLoading && !archiveError && items.length === 0 ? (
+        {status === "ready" && items.length === 0 ? (
           <p className="p-2 text-muted-foreground">
             {TABS.find(({ value }) => value === prefs.tab)!.empty}
           </p>
@@ -801,30 +776,15 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
                   detailed={isDetailed(item.thread)}
                   wakeAt={snoozes.snoozed.get(item.thread.id)}
                   snoozes={snoozes}
+                  parked={parked.has(item.thread.id)}
+                  parks={parks}
+                  threads={threads}
                 />
               ),
             )
           : null}
         {status === "ready" ? (
           <div aria-hidden="true" style={{ height: offsets[items.length]! - offsets[end]! }} />
-        ) : null}
-        {showArchive &&
-        archived &&
-        (archiveError || (status === "ready" && archived.hasNextPage)) ? (
-          <button
-            type="button"
-            disabled={archived.isFetchingNextPage}
-            className="mt-2 w-full rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50"
-            onClick={() => {
-              void archived.fetchNextPage().catch(() => {});
-            }}
-          >
-            {archived.isFetchNextPageError || archiveError
-              ? "Retry archive"
-              : archived.isFetchingNextPage
-                ? "Loading more…"
-                : "Show more"}
-          </button>
         ) : null}
       </div>
     </div>

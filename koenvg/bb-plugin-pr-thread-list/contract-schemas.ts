@@ -9,6 +9,7 @@ export const summariesSchema = z.object({
 export type Summaries = z.infer<typeof summariesSchema>;
 
 export const SNOOZES_CHANGED_CHANNEL = "snoozes.changed";
+export const PARKS_CHANGED_CHANNEL = "parks.changed";
 export const MAX_SNOOZE_MS = 30 * 86_400_000;
 
 export const threadId = z.string().min(1);
@@ -25,3 +26,6 @@ export const snoozesSchema = z
     return true;
   }, "Snooze membership and deadlines must form complete groups.");
 export type Snoozes = z.infer<typeof snoozesSchema>;
+
+export const parksSchema = z.object({ threadIds: z.array(threadId) });
+export type Parks = z.infer<typeof parksSchema>;

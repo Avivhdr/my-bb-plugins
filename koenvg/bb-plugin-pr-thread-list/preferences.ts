@@ -4,7 +4,6 @@ export const STORAGE_KEY = "bb-plugin-pr-thread-list:preferences:v1";
 export const DEFAULT_PREFERENCES: ListOptions = {
   tab: "attention",
   mode: "project",
-  lifecycles: ["active"],
   sort: "updated",
   direction: "desc",
   collapsedGroups: [],
@@ -30,15 +29,14 @@ export function readPreferences(storage: Store | undefined = localStore()): List
     if (!parsed || typeof parsed !== "object" || !("version" in parsed) || parsed.version !== 1)
       return DEFAULT_PREFERENCES;
     const value = parsed as Record<string, unknown>;
-    const lifecycles = Array.isArray(value.lifecycles)
-      ? value.lifecycles.filter((v): v is "active" | "archived" => oneOf(v, ["active", "archived"]))
-      : [];
     return {
-      tab: oneOf(value.tab, ["attention", "inflight", "all"]) ? value.tab : DEFAULT_PREFERENCES.tab,
+      // A saved "all" tab predates Later and falls back to Now.
+      tab: oneOf(value.tab, ["attention", "inflight", "later"])
+        ? value.tab
+        : DEFAULT_PREFERENCES.tab,
       mode: oneOf(value.mode, ["project", "machine", "section"])
         ? value.mode
         : DEFAULT_PREFERENCES.mode,
-      lifecycles: lifecycles.length > 0 ? [...new Set(lifecycles)] : DEFAULT_PREFERENCES.lifecycles,
       sort: oneOf(value.sort, ["updated", "created", "title"])
         ? value.sort
         : DEFAULT_PREFERENCES.sort,

@@ -83,6 +83,9 @@ function mount(options: Options = {}, list = false, Observer?: ComponentType) {
         listSummaries: () => ({ insightAvailable: true, summaries: {} }),
         snooze: () => ({}),
         wake: () => ({}),
+        listParks: () => ({ threadIds: [] }),
+        park: () => ({}),
+        unpark: () => ({}),
         ...rpc,
       },
     },
@@ -177,7 +180,7 @@ it("keeps the sidebar and commands in sync after snooze, wake, and another clien
   expect(calls(slot, "listSnoozes")).toHaveLength(1);
   await act(async () => command("snooze-tomorrow").run(context()));
   await waitFor(() => expect(slot.queryByRole("link", { name: "Prepare release" })).toBeNull());
-  fireEvent.click(slot.getByRole("tab", { name: "All" }));
+  fireEvent.click(slot.getByRole("tab", { name: "Later" }));
   expect(slot.getByRole("button", { name: "Collapse Snoozed" })).toBeTruthy();
   expect(available()).toEqual(["wake-now"]);
   await act(async () => command("wake-now").run(context()));
@@ -232,9 +235,9 @@ describe("captured subtree in the sidebar", () => {
       } else await act(async () => command("snooze-tomorrow").run(context()));
       await waitFor(() => expect(available()).toEqual(["wake-now"]));
       expect(slot.queryAllByRole("link")).toHaveLength(0);
-      fireEvent.click(slot.getByRole("tab", { name: "Needs attention" }));
+      fireEvent.click(slot.getByRole("tab", { name: "Now" }));
       expect(slot.queryAllByRole("link")).toHaveLength(0);
-      fireEvent.click(slot.getByRole("tab", { name: "All" }));
+      fireEvent.click(slot.getByRole("tab", { name: "Later" }));
       expect(slot.getByRole("button", { name: "Collapse Snoozed" })).toBeTruthy();
       for (const name of ["Prepare release", "Child", "Grandchild"])
         expect(slot.getAllByRole("link", { name })).toHaveLength(1);
@@ -258,12 +261,12 @@ describe("captured subtree in the sidebar", () => {
       fireEvent.click(slot.getByRole("tab", { name: "In flight" }));
       for (const name of ["Prepare release", "Child", "Grandchild"])
         expect(slot.getAllByRole("link", { name })).toHaveLength(1);
-      fireEvent.click(slot.getByRole("tab", { name: "Needs attention" }));
+      fireEvent.click(slot.getByRole("tab", { name: "Now" }));
       expect(slot.queryAllByRole("link")).toHaveLength(0);
     },
   );
 
-  it("restores the whole tree to Needs attention when a grouped grandchild asks for approval", async () => {
+  it("restores the whole tree to Now when a grouped grandchild asks for approval", async () => {
     const rows = family().map((row) =>
       row.id === "grandchild" ? { ...row, hasPendingInteraction: true } : row,
     );

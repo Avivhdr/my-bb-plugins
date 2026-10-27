@@ -6,7 +6,8 @@ import type {
 import type { ThreadListActions } from "./sidebar-actions";
 import type { MenuItem } from "./action-menu";
 import type { ListItem } from "./list-model";
-import { snoozePresets, type SnoozeControls } from "./snooze-model";
+import { canSnoozeSubtree, snoozePresets, type SnoozeControls } from "./snooze-model";
+import type { ParkControls } from "./use-parks";
 import { cancelPrPanelRequest } from "../bb-plugin-github-insight/pr-panel-navigation";
 
 const askName = (label: string, current = "") => window.prompt(label, current)?.trim() || null;
@@ -123,6 +124,32 @@ export function snoozeMenuItems(
         snoozePresets(new Date()).find((preset) => preset.label === label)?.wakeAt ?? shown,
       ),
   }));
+}
+
+/** Later holds a whole tree; a thread that needs you cannot move there. */
+export function parkMenuItems(
+  thread: PluginSidebarThread,
+  isParked: boolean,
+  threads: readonly PluginSidebarThread[],
+  { ready, park, unpark }: Pick<ParkControls, "ready" | "park" | "unpark">,
+): MenuItem[] {
+  if (!ready) return [];
+  if (isParked)
+    return [
+      {
+        label: "Move to Now",
+        failure: "Could not move the thread to Now.",
+        run: () => unpark(thread.id),
+      },
+    ];
+  if (!canSnoozeSubtree(threads, thread.id)) return [];
+  return [
+    {
+      label: "Move to Later",
+      failure: "Could not move the thread to Later.",
+      run: () => park(thread.id),
+    },
+  ];
 }
 
 export function newThreadScope({

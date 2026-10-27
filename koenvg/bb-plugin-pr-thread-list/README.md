@@ -11,39 +11,56 @@ Build: `bun install --frozen-lockfile && bb plugin types && bb plugin build`. In
 
 ## Tabs
 
-The tabs above the rows are **Needs attention**, **In flight**, and **All**. They show no counts. Use the arrow keys to move between them. The list opens on the tab you used last, or on **Needs attention** the first time.
+The tabs above the rows are **Now**, **In flight**, and **Later**. They show no counts. Use the arrow keys to move between them. The list opens on the tab you used last, or on **Now** the first time.
 
-**Needs attention** and **In flight** show only active threads. Each active thread is in one of them. The first rule that matches decides:
+All three tabs show only active threads. Archived threads are not listed; use BB's bundled **Thread list** to browse them. **Later** holds threads you parked yourself (see [Later](#later)) and the **Snoozed** group. For a thread that is not parked, the first rule that matches decides between **Now** and **In flight**:
 
-| Rule                                                                                                     | Tab                                   |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Is snoozed                                                                                               | Neither (shows in **Snoozed** in All) |
-| Waits for an approval or an answer, has an unread error, or has a queued message that failed to send     | Needs attention                       |
-| Has unread output                                                                                        | Needs attention                       |
-| Runs, has background work, or has a queued message that waits                                            | In flight                             |
-| Has an active child thread, at any depth (runs, has background work, has a queued message, or needs you) | In flight                             |
-| Has no PR, or no usable PR summary                                                                       | Needs attention                       |
-| Open PR has a failed merge queue entry                                                                   | Needs attention                       |
-| Open PR is queued or merging in a merge queue                                                            | In flight                             |
-| PR has failed checks, a check waiting for you, requested changes, conflicts, or unresolved comments      | Needs attention                       |
-| Open PR has checks running or waits for a required review                                                | In flight                             |
-| Any other PR (ready, draft, behind, blocked, merged, closed)                                             | Needs attention                       |
+| Rule                                                                                                     | Tab                   |
+| -------------------------------------------------------------------------------------------------------- | --------------------- |
+| Is snoozed                                                                                               | Later, in **Snoozed** |
+| Waits for an approval or an answer, has an unread error, or has a queued message that failed to send     | Now                   |
+| Runs, has background work, or has a queued message that waits                                            | In flight             |
+| Has an active child thread, at any depth (runs, has background work, has a queued message, or needs you) | In flight             |
+| Has unread output                                                                                        | Now                   |
+| Has no PR, or no usable PR summary                                                                       | Now                   |
+| Open PR has a failed merge queue entry                                                                   | Now                   |
+| Open PR is queued or merging in a merge queue                                                            | In flight             |
+| PR has failed checks, a check waiting for you, requested changes, conflicts, or unresolved comments      | Now                   |
+| Open PR has checks running or waits for a required review                                                | In flight             |
+| Any other PR (ready, draft, behind, blocked, merged, closed)                                             | Now                   |
 
 A thread tree moves as one unit. The first matching tree-wide rule decides its tab:
 
-1. If any eligible member needs input or approval, has unread output or an unread error, or has a failed queued message, the whole tree shows in **Needs attention**.
-2. Otherwise, if any eligible member runs, has background work, or has a queued message waiting, the whole tree shows in **In flight**, even when another member has conflicts, failed checks, requested changes, unresolved comments, or a failed merge queue entry.
-3. Otherwise, the existing idle-thread and PR rules apply. The top eligible thread can put the tree in **Needs attention**, and a child's PR problem can pull it there. A finished child with no PR, or with a ready, draft, merged, or closed PR, does not move its tree.
+1. If any eligible member needs input or approval, has an unread error, or has a failed queued message, the whole tree shows in **Now**.
+2. Otherwise, if any eligible member runs, has background work, or has a queued message waiting, the whole tree shows in **In flight**, even when another member has unread output, conflicts, failed checks, requested changes, unresolved comments, or a failed merge queue entry. A launcher thread that finished its turn while its child works stays in **In flight**.
+3. Otherwise, if any eligible member has unread output, the whole tree shows in **Now**.
+4. Otherwise, the existing idle-thread and PR rules apply. The top eligible thread can put the tree in **Now**, and a child's PR problem can pull it there. A finished child with no PR, or with a ready, draft, merged, or closed PR, does not move its tree.
 
 Only non-hidden, non-archived, non-snoozed members contribute signals. Dimmed context rows do not. Each child stays under its parent, and PR problem badges remain visible in **In flight**. When the last working member stops, the tree rechecks its idle-thread and PR rules without a reload.
 
-Selecting a tree keeps it on **In flight** when it would move to **Needs attention**, until selection leaves the tree or is cleared. Moving between its parent, children, siblings, and grandchildren keeps that tab. Reading output, finishing work, and new attention or PR signals do not move a selected **In flight** tree to **Needs attention**. Read markers, work indicators, and PR badges still show current data, so a held **In flight** tree can need attention.
+Selecting a tree keeps it on **In flight** when it would move to **Now** or **Later**, until selection leaves the tree or is cleared. Moving between its parent, children, siblings, and grandchildren keeps that tab. Reading output, finishing work, and new attention or PR signals do not move a selected **In flight** tree to **Now** or **Later**. Read markers, work indicators, and PR badges still show current data, so a held **In flight** tree can need attention.
 
-A selected tree on **Needs attention** follows **In flight** as soon as work starts. If **Needs attention** is the open tab, the list switches to **In flight**, so the open thread stays on screen. **All** stays selected.
+A selected tree on **Now** or **Later** follows **In flight** as soon as work starts. If the tab it came from is open, the list switches to **In flight**, so the open thread stays on screen.
 
-When selection leaves, the tree immediately follows the current rules above. Archive, hide, removal, and snooze take priority over the hold. Switching tabs keeps an **In flight** hold while the sidebar stays mounted; **All** still uses its normal grouping. The hold is not saved. Remounting the sidebar or reloading uses current natural placement.
+When selection leaves, the tree immediately follows the current rules above. Archive, hide, removal, snooze, **Move to Later**, and **Move to Now** take priority over the hold. Switching tabs keeps an **In flight** hold while the sidebar stays mounted. The hold is not saved. Remounting the sidebar or reloading uses current natural placement.
 
-**All** shows every thread, with the **Needs you** group on top and the **Snoozed** group at the bottom.
+## Later
+
+Open the thread menu and select **Move to Later** to park a thread you want out of **Now** for a while. It stays in **Later** until you select **Move to Now** in its menu. There is no timer; use snooze for that.
+
+Parking applies to the thread and every descendant, including children created after you parked it. A parked tree ignores unread output, finished runs, and PR changes, so it never lands in **Now** on its own. Two signals still move it:
+
+| Parked tree                                                                                           | Tab       |
+| ----------------------------------------------------------------------------------------------------- | --------- |
+| A member waits for an approval or an answer, has an unread error, or has a queued message that failed | Now       |
+| A member runs, has background work, or has a queued message that waits                                | In flight |
+| Anything else                                                                                         | Later     |
+
+So when you open a parked thread and send it a message, it moves to **In flight** while it works, and goes back to **Later** when it is done and you have moved on. It stays parked the whole time. If it stops to ask you something, it shows in **Now** until you answer.
+
+**Move to Later** is absent when the thread, or any of its descendants, waits for you. **Move to Now** on any member of a parked tree clears the park on that thread, all its ancestors, and all its descendants, so the whole tree comes back. Parking a child of a thread that is not parked splits it off: the child shows in **Later** under a dimmed copy of its parent, and the parent stays where it was.
+
+Parks are stored in the plugin's database on the BB server, so all clients show the same parks. Archiving or deleting a thread forgets its park. BB's bundled **Thread list** does not show parks.
 
 The tab of a thread does not depend on whether its row is on screen. The `summary-watch` service on the plugin server reads the github-insight summary of every active thread every 5 seconds. When a summary changes, it sends a `summaries.changed` realtime signal, and the list loads the summaries again. github-insight refreshes a PR when its thread goes idle, so a PR that an agent opens or pushes to shows within seconds. Changes on GitHub only, such as a finished check, come from github-insight's 60 second poll. When you resolve or unresolve a review thread in the Files sub-tab of github-insight's PR tab, the list asks at once. As a fallback, the list also asks once a minute and when the connection comes back.
 
@@ -53,7 +70,7 @@ Open the thread menu and select **Tomorrow** at 9:00 the next day or **Next week
 
 Snooze is unavailable if the selected thread is archived or hidden, or any included member waits for an approval or answer, has an unread error, or has a queued message that failed to send. A running member without those signals does not block it. Existing descendant snoozes are replaced by the parent's new shared deadline.
 
-Snooze marks every included member read without stopping running work. The members leave **Needs attention** and **In flight** together. In **All**, they stay nested in **Snoozed**, with the shared wake time in place of each age. Snoozed ancestors still appear as dimmed context rows for awake threads outside the captured group.
+Snooze marks every included member read without stopping running work. The members leave **Now** and **In flight** together. In **Later**, they stay nested in **Snoozed**, with the shared wake time in place of each age. Snoozed ancestors still appear as dimmed context rows for awake threads outside the captured group.
 
 The whole stored group wakes and returns through the normal tree-tab rules when:
 
@@ -94,13 +111,11 @@ Approval, answer, unread-error, and queued-send early wakes require an open fron
 
 ## List preferences
 
-Open **List options** to group by project, machine, or custom section and to change the sort order. In **All**, List options also selects Active, Archived, or Both. The other tabs ignore this choice. Group and parent-thread headers collapse their descendants. The top thread of a tree decides its group and its pin: a tree shows in the project, section, or machine of its top thread, and in **Pinned** only when the top thread is pinned. Pinned trees stay at the top of their tab. When the archived selection leaves out the parent of a shown thread, and the list has that parent loaded, the parent shows as a dimmed row. It does not count in the group count. A child of a hidden or not loaded parent shows as a top-level row.
+Open **List options** to group by project, machine, or custom section and to change the sort order. Group and parent-thread headers collapse their descendants. The top thread of a tree decides its group and its pin: a tree shows in the project, section, or machine of its top thread, and in **Pinned** only when the top thread is pinned. Pinned trees stay at the top of their tab. A child of a hidden or not loaded parent shows as a top-level row.
 
-These choices, and the selected tab, are saved on this client under a versioned plugin key. They do not migrate from BB's bundled list. **Reset list preferences** restores the defaults: Needs attention, project grouping, active threads, newest first. If browser storage is unavailable, the list still works, but choices last only until reload.
+These choices, and the selected tab, are saved on this client under a versioned plugin key. They do not migrate from BB's bundled list. **Reset list preferences** restores the defaults: Now, project grouping, newest first. A saved **All** tab from an older version opens on **Now**. If browser storage is unavailable, the list still works, but choices last only until reload.
 
-## Triage
-
-In **All**, **Needs you** sits above all other groups. It holds every tree with one or more threads that wait for an approval or an answer, have an unread error, or have a queued message that failed to send. The whole tree shows there, with its nesting.
+## Rows
 
 Each row starts with the agent's logo. A red dot on the logo means the thread needs you. A blue dot means it is unread. The top right shows what the thread does now (**Needs you**, **Failed**, **Not sent**, **Working**, **Planning**, **Draft**, and similar), or its age when it does nothing. Live states use a nine-cell spiral lattice in the original status spinner's position and size. Reduced-motion users see a static lattice. A pinned row has a red background, a metallic red edge that circles the row, and a light sheen that sweeps across it every few seconds. Reduced-motion users see the red background and a still edge.
 

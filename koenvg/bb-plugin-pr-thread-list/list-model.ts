@@ -4,23 +4,20 @@ import type {
   PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { isActive, isBusy, needsAttention } from "./row-cues";
-import { pullsTreeToAttention, type AttentionTab, type Tab } from "./tabs";
+import { pullsTreeToAttention, type Tab } from "./tabs";
 import type { PrSummary } from "./pr-insight";
 
 export type Organization = "project" | "machine" | "section";
-export type Lifecycle = "active" | "archived";
 export type SortField = "updated" | "created" | "title";
 export interface ListOptions {
   tab: Tab;
   mode: Organization;
-  lifecycles: readonly Lifecycle[];
   sort: SortField;
   direction: "asc" | "desc";
   collapsedGroups: readonly string[];
   collapsedThreads: readonly string[];
 }
 export type GroupScope =
-  | { kind: "attention" }
   | { kind: "pinned" }
   | { kind: "threads" }
   | { kind: "snoozed" }
@@ -42,13 +39,12 @@ const groupKey = (scope: GroupScope): string => {
 };
 
 const GROUP_RANKS: Record<GroupScope["kind"], number> = {
-  attention: 0,
-  pinned: 1,
-  project: 2,
-  section: 2,
-  machine: 2,
-  threads: 3,
-  snoozed: 4,
+  pinned: 0,
+  project: 1,
+  section: 1,
+  machine: 1,
+  threads: 2,
+  snoozed: 3,
 };
 
 export type ListItem =
@@ -172,29 +168,57 @@ function collectTrees(forest: Forest, members: readonly PluginSidebarThread[]): 
   return [...trees.values()];
 }
 
+/** A parked thread and an awake thread under the same root form two separate trees. */
 export interface TreePlacement {
   rootId: string;
-  tab: AttentionTab;
+  parked: boolean;
+  tab: Tab;
 }
+
+const sameTree = (a: TreePlacement | undefined, b: TreePlacement) =>
+  a?.rootId === b.rootId && a.parked === b.parked;
 
 /**
  * A selected In flight tree stays there until selection leaves.
- * A selected Needs attention tree follows In flight as soon as work starts.
+ * A selected Now or Later tree follows In flight as soon as work starts.
+ * Moving a tree to Later or back to Now ends the hold.
  */
 export function retainedTreePlacement(
   selected: TreePlacement | undefined,
   previousHold: TreePlacement | undefined,
   priorPlacement: TreePlacement | undefined,
-): { heldTree: TreePlacement | undefined; followInFlight: boolean } {
-  if (!selected) return { heldTree: undefined, followInFlight: false };
-  const retained =
-    previousHold?.rootId === selected.rootId
-      ? previousHold
-      : priorPlacement?.rootId === selected.rootId
-        ? priorPlacement
-        : selected;
-  const followInFlight = retained.tab === "attention" && selected.tab === "inflight";
-  return { heldTree: followInFlight ? selected : retained, followInFlight };
+): { heldTree: TreePlacement | undefined; followFrom: Tab | undefined } {
+  if (!selected) return { heldTree: undefined, followFrom: undefined };
+  const retained = sameTree(previousHold, selected)
+    ? previousHold!
+    : sameTree(priorPlacement, selected)
+      ? priorPlacement!
+      : selected;
+  const followFrom =
+    retained.tab !== "inflight" && selected.tab === "inflight" ? retained.tab : undefined;
+  return { heldTree: followFrom ? selected : retained, followFrom };
+}
+
+/** A thread is parked when it, or any shown ancestor, was moved to Later. */
+export function parkedThreads(
+  threads: readonly PluginSidebarThread[],
+  explicit: ReadonlySet<string>,
+): Set<string> {
+  const parked = new Set<string>();
+  if (explicit.size === 0) return parked;
+  const forest = buildForest(threads);
+  for (const thread of threads) {
+    for (
+      let cursor: PluginSidebarThread | undefined = thread;
+      cursor;
+      cursor = forest.parentOf(cursor)
+    )
+      if (explicit.has(cursor.id)) {
+        parked.add(thread.id);
+        break;
+      }
+  }
+  return parked;
 }
 
 function tabOfTree(
@@ -202,9 +226,19 @@ function tabOfTree(
   forest: Forest,
   isMember: (thread: PluginSidebarThread) => boolean,
   pullRequests: ReadonlyMap<string, PrSummary | null>,
-): AttentionTab {
-  if (members.some((t) => needsAttention(t) || t.isUnread)) return "attention";
+  parked: boolean,
+): Tab {
+  // Unread output, PR changes, and finished work leave a parked tree in Later.
+  if (parked)
+    return members.some(needsAttention)
+      ? "attention"
+      : members.some(isActive)
+        ? "inflight"
+        : "later";
+  if (members.some(needsAttention)) return "attention";
+  // Unread output alone waits until the whole tree stops, such as a launcher whose child runs.
   if (members.some(isActive)) return "inflight";
+  if (members.some((t) => t.isUnread)) return "attention";
   // No eligible work or direct attention remains; apply the existing idle/PR rules.
   const isTopMember = (t: PluginSidebarThread) => {
     for (let parent = forest.parentOf(t); parent; parent = forest.parentOf(parent))
@@ -218,22 +252,35 @@ function tabOfTree(
     : "inflight";
 }
 
+type Membership = [parked: boolean, isMember: (thread: PluginSidebarThread) => boolean];
+
+const memberships = (
+  isMember: (thread: PluginSidebarThread) => boolean,
+  parked: ReadonlySet<string>,
+): Membership[] => [
+  [false, (t) => isMember(t) && !parked.has(t.id)],
+  [true, (t) => isMember(t) && parked.has(t.id)],
+];
+
 /** Natural placement of eligible selections, independent of tab, collapse, or a hold. */
 export function naturalTreePlacements(
   threads: readonly PluginSidebarThread[],
   pullRequests: ReadonlyMap<string, PrSummary | null>,
   snoozed: ReadonlyMap<string, number>,
+  parked: ReadonlySet<string> = new Set(),
 ): ReadonlyMap<string, TreePlacement> {
   const forest = buildForest(threads);
-  const isMember = (t: PluginSidebarThread) => !t.isHidden && !t.isArchived && !snoozed.has(t.id);
+  const isEligible = (t: PluginSidebarThread) => !t.isHidden && !t.isArchived && !snoozed.has(t.id);
   const placements = new Map<string, TreePlacement>();
-  for (const tree of collectTrees(forest, threads.filter(isMember))) {
-    const placement = {
-      rootId: tree.root.id,
-      tab: tabOfTree(tree, forest, isMember, pullRequests),
-    };
-    for (const member of tree.members) placements.set(member.id, placement);
-  }
+  for (const [isParked, isMember] of memberships(isEligible, parked))
+    for (const tree of collectTrees(forest, threads.filter(isMember))) {
+      const placement = {
+        rootId: tree.root.id,
+        parked: isParked,
+        tab: tabOfTree(tree, forest, isMember, pullRequests, isParked),
+      };
+      for (const member of tree.members) placements.set(member.id, placement);
+    }
   return placements;
 }
 /** One stable, flattened tree for rendering and windowing. Never mutates host rows. */
@@ -245,24 +292,16 @@ export function visibleItems(
   pullRequests: ReadonlyMap<string, PrSummary | null> = new Map(),
   snoozed: ReadonlyMap<string, number> = new Map(),
   heldTree?: TreePlacement,
+  parked: ReadonlySet<string> = new Set(),
 ): ListItem[] {
   const { tab } = options;
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   const sectionNames = new Map(sections.map((s) => [s.id, s.name]));
-  const isListed = (t: PluginSidebarThread) =>
-    !t.isHidden &&
-    (tab === "all"
-      ? options.lifecycles.includes(t.isArchived ? "archived" : "active")
-      : !t.isArchived);
-  const isMember = (t: PluginSidebarThread) => isListed(t) && !snoozed.has(t.id);
-  const isSnoozedMember = (t: PluginSidebarThread) =>
-    tab === "all" && isListed(t) && snoozed.has(t.id);
+  const isListed = (t: PluginSidebarThread) => !t.isHidden && !t.isArchived;
+  const isEligible = (t: PluginSidebarThread) => isListed(t) && !snoozed.has(t.id);
+  const isSnoozedMember = (t: PluginSidebarThread) => isListed(t) && snoozed.has(t.id);
   const forest = buildForest(threads);
-  const scopeOf = (
-    root: PluginSidebarThread,
-    members: readonly PluginSidebarThread[],
-  ): GroupScope => {
-    if (tab === "all" && members.some(needsAttention)) return { kind: "attention" };
+  const scopeOf = (root: PluginSidebarThread): GroupScope => {
     if (root.isPinned) return { kind: "pinned" };
     if (options.mode === "section")
       return root.sectionId && sectionNames.has(root.sectionId)
@@ -278,8 +317,6 @@ export function visibleItems(
   };
   const labelOf = (scope: GroupScope): string => {
     switch (scope.kind) {
-      case "attention":
-        return "Needs you";
       case "pinned":
         return "Pinned";
       case "threads":
@@ -296,38 +333,46 @@ export function visibleItems(
   };
   type Group = {
     scope: GroupScope;
-    roots: PluginSidebarThread[];
+    roots: Set<PluginSidebarThread>;
     rows: Set<string>;
-    count: number;
+    members: Set<string>;
   };
+  const emptyGroup = (scope: GroupScope): Group => ({
+    scope,
+    roots: new Set(),
+    rows: new Set(),
+    members: new Set(),
+  });
   const groups = new Map<string, Group>();
+  // A parked and an awake tree can share a root; they merge into one rendered tree.
   const add = (scope: GroupScope, { root, members, rows }: Tree) => {
     const key = groupKey(scope);
     let group = groups.get(key);
     if (!group) {
-      group = { scope, roots: [], rows: new Set(), count: 0 };
+      group = emptyGroup(scope);
       groups.set(key, group);
     }
-    group.roots.push(root);
+    group.roots.add(root);
     for (const id of rows) group.rows.add(id);
-    group.count += members.length;
+    for (const member of members) group.members.add(member.id);
   };
   const sectionOrder = new Map(sections.map((section, index) => [section.id, index]));
   if (options.mode === "section")
     for (const section of sections) {
       const scope: GroupScope = { kind: "section", sectionId: section.id };
-      groups.set(groupKey(scope), { scope, roots: [], rows: new Set(), count: 0 });
+      groups.set(groupKey(scope), emptyGroup(scope));
     }
-  for (const tree of collectTrees(forest, threads.filter(isMember))) {
-    const effectiveTab =
-      heldTree?.rootId === tree.root.id
-        ? heldTree.tab
-        : tabOfTree(tree, forest, isMember, pullRequests);
-    if (tab !== "all" && effectiveTab !== tab) continue;
-    add(scopeOf(tree.root, tree.members), tree);
-  }
-  for (const tree of collectTrees(forest, threads.filter(isSnoozedMember)))
-    add({ kind: "snoozed" }, tree);
+  for (const [isParked, isMember] of memberships(isEligible, parked))
+    for (const tree of collectTrees(forest, threads.filter(isMember))) {
+      const placement = { rootId: tree.root.id, parked: isParked, tab };
+      const effectiveTab = sameTree(heldTree, placement)
+        ? heldTree!.tab
+        : tabOfTree(tree, forest, isMember, pullRequests, isParked);
+      if (effectiveTab === tab) add(scopeOf(tree.root), tree);
+    }
+  if (tab === "later")
+    for (const tree of collectTrees(forest, threads.filter(isSnoozedMember)))
+      add({ kind: "snoozed" }, tree);
   const rank = (scope: GroupScope) => GROUP_RANKS[scope.kind];
   const groupOrder = [...groups.values()].sort(({ scope: a }, { scope: b }) => {
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -336,9 +381,10 @@ export function visibleItems(
     return labelOf(a).localeCompare(labelOf(b));
   });
   const result: ListItem[] = [];
-  for (const { scope, roots, rows, count } of groupOrder) {
+  for (const { scope, roots, rows, members } of groupOrder) {
     const key = groupKey(scope);
     const collapsed = options.collapsedGroups.includes(key);
+    const count = members.size;
     result.push({ kind: "group", id: key, scope, label: labelOf(scope), count, collapsed });
     if (collapsed) continue;
     const append = (thread: PluginSidebarThread, depth: number): void => {
@@ -351,13 +397,13 @@ export function visibleItems(
         depth,
         hasChildren: descendants.length > 0,
         collapsed: folded,
-        context: !(scope.kind === "snoozed" ? isSnoozedMember : isMember)(thread),
+        context: !members.has(thread.id),
       });
       if (!folded)
         for (const child of descendants.sort((a, b) => compare(a, b, options)))
           append(child, depth + 1);
     };
-    for (const root of roots.sort((a, b) => compare(a, b, options))) append(root, 0);
+    for (const root of [...roots].sort((a, b) => compare(a, b, options))) append(root, 0);
   }
   return result;
 }

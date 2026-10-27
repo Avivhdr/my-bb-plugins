@@ -1,15 +1,13 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { MAX_SNOOZE_MS, SNOOZES_CHANGED_CHANNEL } from "./contract";
-import { createSnoozeStore, SNOOZE_MIGRATIONS } from "./snooze-store";
+import { createSnoozeStore } from "./snooze-store";
 import { listSnoozeThreads, subtreeMembers } from "./snooze-tree";
 import { createSnoozeLifecycle } from "./snooze-lifecycle";
 
 export const SNOOZE_WAKE_SCHEDULE = "snooze-wake";
 
 export function registerSnoozes(bb: BbPluginApi, now: () => number = Date.now) {
-  const db = bb.storage.database();
-  bb.storage.migrate(db, SNOOZE_MIGRATIONS);
-  const store = createSnoozeStore(db);
+  const store = createSnoozeStore(bb.storage.database());
   const changed = () => bb.realtime.publish(SNOOZES_CHANGED_CHANNEL, {});
   const lifecycle = createSnoozeLifecycle();
   const endSnooze = (threadId: string) => {

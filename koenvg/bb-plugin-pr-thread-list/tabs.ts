@@ -3,7 +3,8 @@ import type { BlockerCode, PrSummary } from "./pr-insight";
 import { isActive, needsAttention } from "./row-cues";
 
 export type AttentionTab = "attention" | "inflight";
-export type Tab = AttentionTab | "all";
+/** Shown as Now, In flight, and Later. */
+export type Tab = AttentionTab | "later";
 
 const PROBLEMS: readonly BlockerCode[] = [
   "conflicts",
@@ -37,8 +38,9 @@ function attentionReason(
   pr: PrSummary | null,
   hasActiveDescendant: boolean,
 ): AttentionReason | null {
-  if (needsAttention(thread) || thread.isUnread) return "urgent";
+  if (needsAttention(thread)) return "urgent";
   if (isActive(thread) || hasActiveDescendant) return null;
+  if (thread.isUnread) return "urgent";
   if (!pr) return "settled";
   if (pr.mergeQueue) return pr.mergeQueue.state === "failed" ? "urgent" : null;
   if (pr.blockers.some((code) => PROBLEMS.includes(code))) return "urgent";
