@@ -46,7 +46,7 @@ describe("Pull Requests sidebar badge", () => {
     expect(slot.container.textContent).toBe("");
   });
 
-  it("shows the muted needs-review count", async () => {
+  it("shows the needs-review count", async () => {
     const slot = renderBadge(() =>
       ok(view([queuePr(), queuePr({ number: 16 }), queuePr({ review: "reviewed" })])),
     );
@@ -72,6 +72,24 @@ describe("Pull Requests sidebar badge", () => {
 
     expect(await slot.findByRole("img", { name: "Review agent came back" })).toBeDefined();
     expect(slot.queryByTestId("review-count")).toBeNull();
+  });
+
+  it("splits the count into in progress and ready instead of the dot", async () => {
+    const slot = renderBadge(() =>
+      ok({
+        ...view([
+          queuePr({ thread: returnedThread }),
+          queuePr({ number: 16, thread: returnedThread }),
+          queuePr({ number: 17, thread: reviewThread }),
+        ]),
+        hasReturned: true,
+      }),
+    );
+
+    expect((await slot.findByTestId("ready-count")).textContent).toBe("2 ready for you");
+    expect(slot.getByTestId("in-progress-count").textContent).toBe("1 in progress");
+    expect(slot.queryByTestId("review-count")).toBeNull();
+    expect(slot.queryByRole("img", { name: "Review agent came back" })).toBeNull();
   });
 
   it("follows queue updates and keeps the last good state on errors", async () => {
