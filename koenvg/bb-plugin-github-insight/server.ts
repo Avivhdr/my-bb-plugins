@@ -55,6 +55,8 @@ export default async function plugin(bb: BbPluginApi) {
     pause,
     readRateLimitReset: async (hostId) =>
       (await host.call("readRateLimitReset", {}, { hostId })).resetAt,
+    findUpstreamPr: (hostId, path) =>
+      host.call("findUpstreamPr", { path }, { hostId, timeoutMs: 30_000 }),
   });
   // The Pull Requests panel shows a PR without a thread under a PR subject id (core/pr-subject.ts).
   const resolveSubject = async (id: string, options?: LookupOptions): Promise<PrResolution> => {

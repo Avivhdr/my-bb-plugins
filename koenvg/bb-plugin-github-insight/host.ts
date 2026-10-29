@@ -36,6 +36,7 @@ import { reviewThreadsPageArgs } from "./github/review-threads-query";
 import { timelinePageArgs } from "./github/timeline-query";
 import { countLocalCommitsAhead } from "./local-commits";
 import { readTextFile } from "./read-text-file";
+import { findUpstreamPr } from "./upstream-pr";
 
 const execFileAsync = promisify(execFile);
 
@@ -60,6 +61,7 @@ export default experimental_defineHostEntry({
     addComment: (request, context) => runGhJson(addCommentArgs(request), context.signal),
     readTextFile: (request) => readTextFile(request),
     countLocalCommitsAhead: (request) => countLocalCommitsAhead(request),
+    findUpstreamPr: (request) => findUpstreamPr(request),
     replyToThread: (request, context) => runGhJson(replyToThreadArgs(request), context.signal),
     setThreadResolved: (request, context) =>
       runGhJson(setThreadResolvedArgs(request), context.signal),

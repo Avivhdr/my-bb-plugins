@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPrLookup, LOOKUP_SHARE_MS } from "./pr-lookup";
 import { createRateLimitPause, RATE_LIMIT_FALLBACK_MS } from "./github/rate-limit-pause";
 import { linkedPr, type PullRequestResult } from "./test/plugin-harness";
+import type { UpstreamPr } from "./contract";
 
 const MINUTE = 60_000;
 const RATE_LIMIT_MESSAGE = "gh pr view failed: GraphQL: API rate limit already exceeded";
@@ -10,7 +11,14 @@ function setup(initial: PullRequestResult = linkedPr(7)) {
   let answer: () => Promise<PullRequestResult> = async () => initial;
   const pullRequest = vi.fn((_request: { environmentId: string }) => answer());
   const readRateLimitReset = vi.fn(async (_hostId: string): Promise<number | null> => null);
-  const get = vi.fn(async (_request: { environmentId: string }) => ({ hostId: "host-1" }));
+  const get = vi.fn(
+    async (_request: { environmentId: string }): Promise<{ hostId: string; path?: string }> => ({
+      hostId: "host-1",
+    }),
+  );
+  const findUpstreamPr = vi.fn(async (_hostId: string, _path: string): Promise<UpstreamPr> => ({
+    kind: "none",
+  }));
   const pause = createRateLimitPause();
   const lookup = createPrLookup({
     sdk: {
@@ -26,6 +34,7 @@ function setup(initial: PullRequestResult = linkedPr(7)) {
     } as unknown as Parameters<typeof createPrLookup>[0]["sdk"],
     pause,
     readRateLimitReset,
+    findUpstreamPr,
   });
   return {
     ...lookup,
@@ -33,6 +42,7 @@ function setup(initial: PullRequestResult = linkedPr(7)) {
     pullRequest,
     get,
     readRateLimitReset,
+    findUpstreamPr,
     answer(next: PullRequestResult | (() => Promise<PullRequestResult>)) {
       answer = typeof next === "function" ? next : async () => next;
     },
@@ -56,6 +66,64 @@ describe("createPrLookup", () => {
         hostId: "host-1",
         openOnBb: true,
       },
+    });
+  });
+
+  describe("a branch pushed under another name", () => {
+    function withPath(answer: UpstreamPr) {
+      const lookup = setup({ outcome: "absent" });
+      lookup.get.mockResolvedValue({ hostId: "host-1", path: "/work/frontend" });
+      lookup.findUpstreamPr.mockResolvedValue(answer);
+      return lookup;
+    }
+
+    it("finds the PR on the upstream branch when bb finds none", async () => {
+      const lookup = withPath({
+        kind: "pr",
+        url: "https://github.com/collibra/frontend/pull/26666",
+        state: "open",
+      });
+      expect(await lookup.resolveEnvironmentPr("env_1")).toEqual({
+        kind: "pr",
+        target: {
+          ref: { owner: "collibra", repo: "frontend", number: 26666 },
+          hostId: "host-1",
+          openOnBb: true,
+        },
+      });
+      expect(lookup.findUpstreamPr).toHaveBeenCalledWith("host-1", "/work/frontend");
+    });
+
+    it("keeps the upstream PR for a minute like any open PR", async () => {
+      const lookup = withPath({
+        kind: "pr",
+        url: "https://github.com/collibra/frontend/pull/26666",
+        state: "open",
+      });
+      await lookup.resolveEnvironmentPr("env_1");
+      vi.advanceTimersByTime(MINUTE - 1);
+      await lookup.resolveEnvironmentPr("env_1");
+      expect(lookup.findUpstreamPr).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["finds no PR", { kind: "none" } as const],
+      ["fails", { kind: "error", message: "gh failed" } as const],
+    ])("reports no PR when the upstream lookup %s", async (_name, answer) => {
+      const lookup = withPath(answer);
+      expect(await lookup.resolveEnvironmentPr("env_1")).toEqual({ kind: "no_pr" });
+    });
+
+    it("reports no PR when the host call throws", async () => {
+      const lookup = withPath({ kind: "none" });
+      lookup.findUpstreamPr.mockRejectedValue(new Error("host disconnected"));
+      expect(await lookup.resolveEnvironmentPr("env_1")).toEqual({ kind: "no_pr" });
+    });
+
+    it("skips the upstream lookup for an environment without a path", async () => {
+      const lookup = setup({ outcome: "absent" });
+      expect(await lookup.resolveEnvironmentPr("env_1")).toEqual({ kind: "no_pr" });
+      expect(lookup.findUpstreamPr).not.toHaveBeenCalled();
     });
   });
 

@@ -109,6 +109,20 @@ const localCommitsAheadSchema = z.discriminatedUnion("kind", [
 ]);
 export type LocalCommitsAhead = z.infer<typeof localCommitsAheadSchema>;
 
+const upstreamPrRequestSchema = z.object({ path: z.string().min(1) }).strict();
+export type UpstreamPrRequest = z.infer<typeof upstreamPrRequestSchema>;
+
+const upstreamPrSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("pr"),
+    url: z.string(),
+    state: z.enum(["open", "draft", "closed", "merged"]),
+  }),
+  z.object({ kind: z.literal("none") }),
+  z.object({ kind: z.literal("error"), message: z.string() }),
+]);
+export type UpstreamPr = z.infer<typeof upstreamPrSchema>;
+
 const replyToThreadRequestSchema = z
   .object({ threadId: z.string().min(1), body: z.string().min(1) })
   .strict();
@@ -197,6 +211,10 @@ export const hostContract = defineRpcContract({
   countLocalCommitsAhead: {
     input: localCommitsRequestSchema,
     output: localCommitsAheadSchema,
+  },
+  findUpstreamPr: {
+    input: upstreamPrRequestSchema,
+    output: upstreamPrSchema,
   },
   replyToThread: {
     input: replyToThreadRequestSchema,

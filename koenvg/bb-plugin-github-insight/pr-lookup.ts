@@ -3,6 +3,7 @@ import { z } from "zod";
 import { parsePullRequestUrl, type PullRequestRef } from "./core/pr-ref";
 import { isRateLimitMessage, RATE_LIMITED_TEXT } from "./github/gh-failure";
 import type { RateLimitPause } from "./github/rate-limit-pause";
+import type { UpstreamPr } from "./contract";
 
 const PR_STATUS_PLUGIN_ID = "bb--github-pr-status";
 
@@ -67,9 +68,11 @@ export interface PrLookupDeps {
   sdk: Pick<BbPluginApi["sdk"], "threads" | "environments" | "plugins">;
   pause: RateLimitPause;
   readRateLimitReset(hostId: string): Promise<number | null>;
+  /** Looks for a PR on the branch's upstream name when it differs from the local name. */
+  findUpstreamPr(hostId: string, path: string): Promise<UpstreamPr>;
 }
 
-export function createPrLookup({ sdk, pause, readRateLimitReset }: PrLookupDeps) {
+export function createPrLookup({ sdk, pause, readRateLimitReset, findUpstreamPr }: PrLookupDeps) {
   const stored = new Map<string, StoredLookup>();
   const running = new Map<string, { done: Promise<PrResolution>; released: Promise<void> }>();
 
@@ -81,6 +84,32 @@ export function createPrLookup({ sdk, pause, readRateLimitReset }: PrLookupDeps)
   async function pauseForRateLimit(hostId: string): Promise<void> {
     const resetAt = await readRateLimitReset(hostId).catch(() => null);
     pause.pauseUntilReset(resetAt);
+  }
+
+  function storePr(
+    environmentId: string,
+    hostId: string,
+    { url, state }: { url: string; state: LinkedPrState },
+  ): PrResolution {
+    const ref = parsePullRequestUrl(url);
+    if (ref === null) {
+      stored.delete(environmentId);
+      return { kind: "error", message: `Not a github.com pull request: ${url}` };
+    }
+    const target = { ref, hostId, openOnBb: state === "open" || state === "draft" };
+    return store(environmentId, { kind: "pr", target }, PR_TTL_MS[state]);
+  }
+
+  // bb looks the PR up by the local branch name, so a branch pushed under another name has none.
+  async function lookUpUpstream(
+    environmentId: string,
+    { hostId, path }: { hostId: string; path?: string | null },
+  ): Promise<PrResolution> {
+    if (path) {
+      const upstream = await findUpstreamPr(hostId, path).catch(() => null);
+      if (upstream?.kind === "pr") return storePr(environmentId, hostId, upstream);
+    }
+    return store(environmentId, { kind: "no_pr" }, NO_PR_TTL_MS);
   }
 
   async function lookUp(environmentId: string): Promise<PrResolution> {
@@ -110,7 +139,7 @@ export function createPrLookup({ sdk, pause, readRateLimitReset }: PrLookupDeps)
       stored.delete(environmentId);
       return { kind: "error", message: error instanceof Error ? error.message : String(error) };
     }
-    if (linked.outcome === "absent") return store(environmentId, { kind: "no_pr" }, NO_PR_TTL_MS);
+    if (linked.outcome === "absent") return lookUpUpstream(environmentId, environment);
     if (linked.outcome === "unavailable") {
       if (linked.message.includes("no git remotes found")) {
         return store(environmentId, { kind: "no_pr" }, NO_PR_TTL_MS);
@@ -123,18 +152,7 @@ export function createPrLookup({ sdk, pause, readRateLimitReset }: PrLookupDeps)
       stored.delete(environmentId);
       return { kind: "error", message: linked.message };
     }
-    const { url, state } = linked.pullRequest;
-    const ref = parsePullRequestUrl(url);
-    if (ref === null) {
-      stored.delete(environmentId);
-      return { kind: "error", message: `Not a github.com pull request: ${url}` };
-    }
-    const target = {
-      ref,
-      hostId: environment.hostId,
-      openOnBb: state === "open" || state === "draft",
-    };
-    return store(environmentId, { kind: "pr", target }, PR_TTL_MS[state]);
+    return storePr(environmentId, environment.hostId, linked.pullRequest);
   }
 
   // A lookup through a disconnected host can hang. Later callers stop waiting on it after a while.
