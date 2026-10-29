@@ -88,6 +88,7 @@ function renderPanel(threadId = "thr_1", handlers: Handlers = {}) {
         archiveReview: fail,
         markReviewed: fail,
         markNeedsReview: fail,
+        reReview: fail,
         markQueueSeen: fail,
         markThreadOpened: fail,
         hideRepo: fail,

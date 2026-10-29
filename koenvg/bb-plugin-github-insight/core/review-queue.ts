@@ -34,6 +34,8 @@ const prNodeSchema = z.object({
   repository: z.object({ nameWithOwner: z.string() }),
   headRefName: z.string(),
   headRefOid: z.string(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
   reviewDecision: reviewDecisionSchema,
   labels: z.object({ nodes: z.array(z.object({ name: z.string() })) }).optional(),
   commits: z.object({
@@ -127,6 +129,9 @@ export const queuePrSchema = z.object({
   reviewDecision: reviewDecisionSchema,
   headRefName: z.string(),
   headOid: z.string(),
+  /** Lines added and removed; null in a queue stored before they were read. */
+  additions: z.number().nullable().default(null),
+  deletions: z.number().nullable().default(null),
   url: z.string(),
   state: prStateSchema,
   closedAt: z.string().nullable(),
@@ -224,6 +229,8 @@ function toQueuePr(node: PrNode): QueuePr {
     reviewDecision: node.reviewDecision,
     headRefName: node.headRefName,
     headOid: node.headRefOid,
+    additions: node.additions ?? null,
+    deletions: node.deletions ?? null,
     url: node.url,
     state: PR_STATE[node.state],
     closedAt: node.mergedAt ?? node.closedAt,

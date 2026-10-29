@@ -6,6 +6,7 @@ import type {
   MarkQueueSeenRequest,
   MarkReviewedRequest,
   PrRefRequest,
+  ReReviewRequest,
   RepoVisibilityRequest,
   TeammatesTeamRequest,
   ViewerTeamsResult,
@@ -21,6 +22,7 @@ import {
   type ReviewLayer,
 } from "../core/review-filters";
 import { readReviewPr, type ReviewPr } from "../core/review-pr";
+import { buildReReviewPrompt } from "../core/review-prompt";
 import {
   CLOSED_PR_WINDOW_MS,
   parseGithubRepo,
@@ -48,6 +50,7 @@ import type { ViewerTeam } from "../core/teams";
 import type { PrResolution } from "../pr-lookup";
 import { createIgnoredPrs } from "./ignored-prs";
 import { isSharedEnvironment } from "./review-environment";
+import { createReReviews, type SentReReview } from "./re-reviews";
 import { createReturnedThreads } from "./returned-threads";
 import { createReviewFiltersStore } from "./review-filters";
 import { createReviewedMarks, type ReviewedMark } from "./reviewed-marks";
@@ -58,6 +61,7 @@ export const NO_HOST_MESSAGE = "No host available";
 export const NOT_A_REVIEW_THREAD_MESSAGE = "This thread is not a review thread";
 export const SHARED_ENVIRONMENT_MESSAGE = "Review threads need a new worktree";
 export const INVALID_REPOSITORY_MESSAGE = "Repository must be owner/name";
+export const NOT_REVIEWED_MESSAGE = "This PR has no earlier review to compare with";
 export const REVIEW_QUEUE_INTERVAL_MS = 5 * 60_000;
 export const REVIEW_QUEUE_STORAGE_KEY = "review-queue";
 /** Written by the team PR scan of earlier versions. */
@@ -96,6 +100,9 @@ export interface ReviewQueueServiceDeps {
   readPluginMetadata(threadId: string): Promise<unknown>;
   spawnReviewThread(pr: ReviewPr, request: NewThreadRequest): Promise<string>;
   archiveThread(threadId: string): Promise<void>;
+  sendMessage(threadId: string, text: string): Promise<unknown>;
+  /** The "How to review" text of the re-review prompt, from the plugin settings. */
+  reReviewInstructions(): Promise<string>;
   resolveEnvironmentPr(environmentId: string): Promise<PrResolution>;
   kv: Pick<PluginKvStorage, "get" | "set" | "delete" | "list">;
   publish(result: LoadedReviewQueue): void;
@@ -243,6 +250,29 @@ function newActivitySince(
   ];
 }
 
+/**
+ * Whether Re-review has something to send: changes since the review, and, after an earlier
+ * re-review, a new commit or new activity since that one.
+ */
+function reReviewDue(
+  row: QueueRow,
+  mark: ReviewedMark,
+  sent: SentReReview | undefined,
+  seenComments: ReadonlySet<string>,
+): boolean {
+  const since = sent !== undefined && sent.sentAt > mark.markedAt ? sent : null;
+  if (since === null) {
+    return (
+      mark.headOid !== row.headOid ||
+      newActivitySince(row.activity, mark.markedAt, seenComments).length > 0
+    );
+  }
+  return (
+    since.headOid !== row.headOid ||
+    newActivitySince(row.activity, since.sentAt, seenComments).length > 0
+  );
+}
+
 function returnedReason(status: ReviewThreadStatus, stopped: boolean): ReturnedReason | null {
   if (status === "needs_you") return "needs_you";
   if (!stopped) return null;
@@ -304,6 +334,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   const seenComments = createSeenComments(deps.kv);
   const filtersStore = createReviewFiltersStore(deps.kv);
   const ignoredPrs = createIgnoredPrs(deps.kv);
+  const reReviews = createReReviews(deps.kv, deps.now);
   let running: Promise<LoadedReviewQueue> | null = null;
   let queued: Promise<LoadedReviewQueue> | null = null;
 
@@ -386,20 +417,33 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     const loadingLive = liveReviewThreads();
     const loadingReviews = loadingLive.then(startedReviews);
     const loadingMarks = marks.list();
-    const [projectIds, live, reviews, threads, marked, seenByPr, seen, returned, filters, ignored] =
-      await Promise.all([
-        projectIdsByRepo(),
-        loadingLive,
-        loadingReviews,
-        loadingReviews.then(threadsByPr),
-        loadingMarks,
-        loadingMarks.then(seenCommentsByPr),
-        seenPrs.list(),
-        returnedThreads.list(),
-        filtersStore.read(),
-        ignoredPrs.list(),
-      ]);
+    const [
+      projectIds,
+      live,
+      reviews,
+      threads,
+      marked,
+      seenByPr,
+      seen,
+      returned,
+      filters,
+      ignored,
+      sentReReviews,
+    ] = await Promise.all([
+      projectIdsByRepo(),
+      loadingLive,
+      loadingReviews,
+      loadingReviews.then(threadsByPr),
+      loadingMarks,
+      loadingMarks.then(seenCommentsByPr),
+      seenPrs.list(),
+      returnedThreads.list(),
+      filtersStore.read(),
+      ignoredPrs.list(),
+      reReviews.list(),
+    ]);
     const marksByPr = new Map(marked.map((mark) => [refKey(mark.ref), mark]));
+    const reReviewsByPr = new Map(sentReReviews.map((sent) => [refKey(sent.ref), sent]));
     const reviewThreadIds = new Set(reviews.map(({ thread }) => thread.id));
     const reviewedPrs = new Set(reviews.map(({ pr }) => prKey(pr.repo, pr.number)));
     const liveIds = new Set(live.map(({ id }) => id));
@@ -429,6 +473,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         if (mark !== undefined && ref !== null) expiredMarks.push(ref);
         return [];
       }
+      const seenComments = seenByPr.get(key) ?? new Set<string>();
+      const thread = linkThread(threads.get(key));
       return [
         {
           ...row,
@@ -436,10 +482,12 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
           projectIds: projectIds.get(row.repo.toLowerCase()) ?? [],
           review: reviewState(mark?.headOid ?? null, row.headOid),
           newActivity:
-            mark === undefined
-              ? []
-              : newActivitySince(row.activity, mark.markedAt, seenByPr.get(key) ?? new Set()),
-          thread: linkThread(threads.get(key)),
+            mark === undefined ? [] : newActivitySince(row.activity, mark.markedAt, seenComments),
+          thread,
+          reReview:
+            mark !== undefined &&
+            thread?.isReviewThread === true &&
+            reReviewDue(row, mark, reReviewsByPr.get(key), seenComments),
           skipLabel: skipLabelOf(row.labels, filters.skipLabels),
           ignored: row.state === "open" && ignored.has(key),
         },
@@ -525,6 +573,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     await Promise.all([
       deleteEach(returnedThreadIds, returnedThreads.delete, (id) => `returned thread ${id}`),
       deleteEach(expiredMarks, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`),
+      deleteEach(expiredMarks, reReviews.delete, (ref) => `the re-review of ${refKey(ref)}`),
       seenKeys.length === 0
         ? undefined
         : seenPrs
@@ -683,6 +732,15 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     }
   }
 
+  /** A new mark makes an earlier re-review moot. */
+  async function forgetReReview(ref: PullRequestRef): Promise<void> {
+    try {
+      await reReviews.delete(ref);
+    } catch (error) {
+      deps.warn(`Could not delete the re-review of ${refKey(ref)}: ${errorText(error)}`);
+    }
+  }
+
   async function markReviewed({
     repo,
     number,
@@ -695,7 +753,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     } catch (error) {
       return { kind: "error", message: errorText(error) };
     }
-    await forgetSeenComments(ref);
+    await Promise.all([forgetSeenComments(ref), forgetReReview(ref)]);
     if (await isListed(ref).catch(() => false)) await relink();
     else void refreshReviewQueue();
     return { kind: "ok" };
@@ -709,7 +767,42 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     } catch (error) {
       return { kind: "error", message: errorText(error) };
     }
-    await forgetSeenComments(ref);
+    await Promise.all([forgetSeenComments(ref), forgetReReview(ref)]);
+    await relink();
+    return { kind: "ok" };
+  }
+
+  /** Sends the re-review prompt to the PR's review thread, comparing with the reviewed mark. */
+  async function reReview({
+    threadId,
+    repo,
+    number,
+    headOid,
+  }: ReReviewRequest): Promise<ActionResult> {
+    const ref = refOf(repo, number);
+    if (ref === null) return { kind: "error", message: INVALID_REPOSITORY_MESSAGE };
+    try {
+      const pr = readReviewPr(await deps.readPluginMetadata(threadId));
+      if (pr === null || prKey(pr.repo, pr.number) !== refKey(ref)) {
+        return { kind: "error", message: NOT_A_REVIEW_THREAD_MESSAGE };
+      }
+      const mark = await marks.get(ref);
+      if (mark === null) return { kind: "error", message: NOT_REVIEWED_MESSAGE };
+      const prompt = buildReReviewPrompt(
+        pr,
+        { reviewedOid: mark.headOid, reviewedAt: mark.markedAt },
+        await deps.reReviewInstructions(),
+      );
+      await deps.sendMessage(threadId, prompt);
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    // The prompt went out; a lost record only offers Re-review again.
+    await reReviews
+      .save(ref, headOid)
+      .catch((error) =>
+        deps.warn(`Could not record the re-review of ${refKey(ref)}: ${errorText(error)}`),
+      );
     await relink();
     return { kind: "ok" };
   }
@@ -857,6 +950,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     archiveReview,
     markReviewed,
     markNeedsReview,
+    reReview,
     markQueueSeen,
     newCommentBasis,
     markCommentsSeen,

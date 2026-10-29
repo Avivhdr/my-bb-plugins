@@ -229,6 +229,11 @@ export function ReviewQueueLists({
     );
   }
 
+  function reReview(pr: LinkedQueuePr, threadId: string) {
+    const { repo, number, headOid } = pr;
+    return runAction(keyOf(pr), () => rpc.call("reReview", { threadId, repo, number, headOid }));
+  }
+
   function setTeammatesTeam(team: string | null) {
     return runAction("teammates-team", () => rpc.call("setTeammatesTeam", { team }));
   }
@@ -273,6 +278,7 @@ export function ReviewQueueLists({
     mark: (pr, value) => void mark(pr, value),
     ignore: (pr, value) => void ignore(pr, value),
     archive: (pr, threadId) => void archive(pr, threadId),
+    reReview: (pr, threadId) => void reReview(pr, threadId),
   };
   const shown = (section: QueueSection) =>
     agentFilter === null ? section : onlyAgentState(section, agentFilter);
@@ -614,6 +620,7 @@ interface CardHandlers {
   mark(pr: LinkedQueuePr, reviewed: boolean): void;
   ignore(pr: LinkedQueuePr, ignored: boolean): void;
   archive(pr: LinkedQueuePr, threadId: string): void;
+  reReview(pr: LinkedQueuePr, threadId: string): void;
 }
 
 interface QueueSectionViewProps {
@@ -809,6 +816,16 @@ function QueueRow({
               {decision.text}
             </span>
           )}
+          {pr.additions !== null && pr.deletions !== null && (
+            <span
+              data-testid="queue-line-counts"
+              title={`${pr.additions} lines added, ${pr.deletions} removed`}
+              className="inline-flex shrink-0 gap-1 font-mono tabular-nums"
+            >
+              <span className={SUCCESS_TEXT}>+{pr.additions}</span>
+              <span className="text-destructive">-{pr.deletions}</span>
+            </span>
+          )}
           {pr.author !== null && <Avatar login={pr.author} url={pr.authorAvatarUrl} labelled />}
           <time
             dateTime={pr.createdAt}
@@ -831,9 +848,24 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
   const busy = actions.busy(pr);
   const reviewed = isReviewed(pr);
   const archiveThreadId = thread?.isReviewThread ? thread.id : null;
+  // Re-review takes the place of an idle agent's status; "Open thread" moves to the menu.
+  const reReviewThread =
+    thread?.isReviewThread === true && pr.reReview && agentStateOf(thread) === "idle"
+      ? thread
+      : null;
   return (
     <>
-      {thread !== null ? (
+      {reReviewThread !== null ? (
+        <PillButton
+          toneClass={NEUTRAL_PILL_TONE}
+          leading={<Icon name="ArrowReloadHorizontal" className="size-3.5 shrink-0" />}
+          title="Send the new commits and replies to the review agent"
+          disabled={busy}
+          onClick={() => actions.reReview(pr, reReviewThread.id)}
+        >
+          Re-review
+        </PillButton>
+      ) : thread !== null ? (
         <ThreadStatusButton
           state={agentStateOf(thread)}
           onClick={() => navigation.toThread(thread.id)}
@@ -868,6 +900,12 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
             <Icon name="ExternalLink" className="size-3.5 shrink-0" />
             Open in GitHub
           </DropdownMenuItem>
+          {reReviewThread !== null && (
+            <DropdownMenuItem onSelect={() => navigation.toThread(reReviewThread.id)}>
+              <Icon name="MessageSquare" className="size-3.5 shrink-0" />
+              Open thread
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => actions.mark(pr, !reviewed)}>
             <Icon name={reviewed ? "RotateCcw" : "Check"} className="size-3.5 shrink-0" />
             {reviewed ? "Mark as needs review" : "Mark reviewed"}
@@ -909,16 +947,26 @@ function ThreadStatusButton({ state, onClick }: { state: AgentState; onClick(): 
 function PillButton({
   toneClass,
   leading,
+  title,
+  disabled,
   onClick,
   children,
 }: {
   toneClass: string;
   leading: ReactNode;
+  title?: string;
+  disabled?: boolean;
   onClick(): void;
   children: ReactNode;
 }) {
   return (
-    <button type="button" className={cn(STATUS_PILL_CLASS, toneClass)} onClick={onClick}>
+    <button
+      type="button"
+      className={cn(STATUS_PILL_CLASS, toneClass, "disabled:cursor-default disabled:opacity-60")}
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+    >
       {leading}
       {children}
       <Icon

@@ -29,6 +29,8 @@ const linkedQueuePrSchema = queueRowSchema.extend({
   review: reviewStateSchema,
   newActivity: z.array(newActivitySchema).default([]),
   thread: linkedThreadSchema.nullable(),
+  /** Re-review can send a follow-up to the review thread: something changed since the last review or re-review. */
+  reReview: z.boolean().default(false),
   /** The label that keeps this PR out of the counts, e.g. "DO NOT REVIEW". */
   skipLabel: z.string().nullable().default(null),
   ignored: z.boolean().default(false),

@@ -259,6 +259,7 @@ function renderTabFor(threadId: string, handlers: RpcHandlers, ...results: Revie
         archiveReview: () => ({ kind: "error", message: "unused" }),
         markReviewed: () => ({ kind: "error", message: "unused" }),
         markNeedsReview: () => ({ kind: "error", message: "unused" }),
+        reReview: () => ({ kind: "error", message: "unused" }),
         markQueueSeen: () => ({ kind: "error", message: "unused" }),
         markThreadOpened: () => ({ kind: "error", message: "unused" }),
         hideRepo: () => ({ kind: "error", message: "unused" }),

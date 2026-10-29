@@ -95,6 +95,7 @@ const unusedReviewRpc = {
   archiveReview: () => ({ kind: "error" as const, message: "unused" }),
   markReviewed: () => ({ kind: "error" as const, message: "unused" }),
   markNeedsReview: () => ({ kind: "error" as const, message: "unused" }),
+  reReview: () => ({ kind: "error" as const, message: "unused" }),
   markQueueSeen: () => ({ kind: "error" as const, message: "unused" }),
   markThreadOpened: () => ({ kind: "error" as const, message: "unused" }),
   hideRepo: () => ({ kind: "error" as const, message: "unused" }),

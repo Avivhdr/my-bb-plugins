@@ -4,6 +4,7 @@ import {
   rpcContract,
   type DraftsResult,
   type GhResult,
+  type InstructionsPrompt,
   type ReviewResult,
 } from "./contract";
 import { INSIGHT_UPDATED_CHANNEL, type InsightUpdated } from "./core/insight-updated";
@@ -30,7 +31,10 @@ import { createPrLookup, type LookupOptions, type PrResolution } from "./pr-look
 import { isPrSubject, parsePrSubject } from "./core/pr-subject";
 import { createRateLimitPause } from "./github/rate-limit-pause";
 import { createReviewQueueService } from "./queue/review-queue-service";
-import { createReviewInstructionsStore } from "./review/review-instructions";
+import {
+  createReviewInstructionsStore,
+  RE_REVIEW_INSTRUCTIONS,
+} from "./review/review-instructions";
 import { createInsightService } from "./refresh/insight-service";
 import { createDraftStore } from "./review/draft-store";
 import { createReviewCli } from "./review/review-cli";
@@ -108,6 +112,15 @@ export default async function plugin(bb: BbPluginApi) {
 
   const signMedia = createMediaSigner(Date.now);
 
+  const sendToThread = async (threadId: string, text: string) => {
+    const result = await bb.sdk.threads.send({
+      threadId,
+      mode: "auto",
+      input: [{ type: "text", text, mentions: [] }],
+    });
+    return result.delivery;
+  };
+
   const review = createReviewService({
     resolvePr: resolveSubject,
     signMedia,
@@ -130,12 +143,7 @@ export default async function plugin(bb: BbPluginApi) {
     markCommentsSeen: (pr, ids) => reviewQueue.markCommentsSeen(pr, ids),
     sendMessage: async (threadId, text) => {
       if (isPrSubject(threadId)) throw new Error("This pull request has no thread to send to");
-      const result = await bb.sdk.threads.send({
-        threadId,
-        mode: "auto",
-        input: [{ type: "text", text, mentions: [] }],
-      });
-      return result.delivery;
+      return sendToThread(threadId, text);
     },
   });
 
@@ -161,6 +169,9 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   const reviewInstructions = createReviewInstructionsStore(bb.storage.kv);
+  const reReviewInstructions = createReviewInstructionsStore(bb.storage.kv, RE_REVIEW_INSTRUCTIONS);
+  const instructionsStore = (prompt: InstructionsPrompt = "review") =>
+    prompt === "re-review" ? reReviewInstructions : reviewInstructions;
 
   const activity = createActivityService({
     primaryHostId,
@@ -212,6 +223,8 @@ export default async function plugin(bb: BbPluginApi) {
     archiveThread: async (threadId) => {
       await bb.sdk.threads.archive({ threadId });
     },
+    sendMessage: sendToThread,
+    reReviewInstructions: async () => (await reReviewInstructions.get()).instructions,
     resolveEnvironmentPr,
     kv: bb.storage.kv,
     publish: (result) => bb.realtime.publish(REVIEW_QUEUE_UPDATED_CHANNEL, result),
@@ -301,6 +314,7 @@ export default async function plugin(bb: BbPluginApi) {
     archiveReview: ({ threadId }) => reviewQueue.archiveReview(threadId),
     markReviewed: (request) => reviewQueue.markReviewed(request),
     markNeedsReview: (request) => reviewQueue.markNeedsReview(request),
+    reReview: (request) => reviewQueue.reReview(request),
     markQueueSeen: (request) => reviewQueue.markQueueSeen(request),
     markThreadOpened: (request) => reviewQueue.markThreadOpened(request),
     hideRepo: (request) => reviewQueue.hideRepo(request),
@@ -309,14 +323,15 @@ export default async function plugin(bb: BbPluginApi) {
     unignorePr: (request) => reviewQueue.unignorePr(request),
     getViewerTeams: () => reviewQueue.getViewerTeams(),
     setTeammatesTeam: (request) => reviewQueue.setTeammatesTeam(request),
-    getReviewInstructions: () => reviewInstructions.get(),
+    getReviewInstructions: ({ prompt }) => instructionsStore(prompt).get(),
     getActivity: () => activity.getActivity(),
     refreshActivity: () => activity.refreshActivity(),
     markActivityRead: ({ ids }) => activity.markRead(ids),
     markActivityPrRead: (request) => activity.markPrRead(request),
     markAllActivityRead: () => activity.markAllRead(),
     setActivityMuted: ({ login, muted }) => activity.setMuted(login, muted),
-    setReviewInstructions: ({ instructions }) => reviewInstructions.set(instructions),
+    setReviewInstructions: ({ instructions, prompt }) =>
+      instructionsStore(prompt).set(instructions),
     runPrAction: (request) => prWrites.runPrAction(request),
     localCommitsAhead: async ({ threadId }) =>
       isPrSubject(threadId)

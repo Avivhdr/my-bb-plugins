@@ -7,7 +7,7 @@ import { PrSidebarBadge } from "./ui/pr-sidebar-badge";
 import { PrPanel } from "./ui/pr-panel";
 import { PullRequestsPanel } from "./ui/pull-requests-panel";
 import { PANEL_PATH } from "./ui/pull-requests-routes";
-import { ReviewPromptSettings } from "./ui/review-prompt-settings";
+import { ReReviewPromptSettings, ReviewPromptSettings } from "./ui/review-prompt-settings";
 
 export default definePluginApp((app) => {
   app.slots.navPanel({
@@ -22,8 +22,16 @@ export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "review-prompt",
     title: "Review prompt",
-    description: "What a review thread from Start review is told to look at.",
+    description:
+      "The prompt a review thread from Start review gets. The top part comes from the plugin; you edit the part below it.",
     component: ReviewPromptSettings,
+  });
+  app.slots.settingsSection({
+    id: "re-review-prompt",
+    title: "Re-review prompt",
+    description:
+      "The prompt Re-review sends to the review thread after new commits, replies, or a new review request. The top part comes from the plugin; you edit the part below it.",
+    component: ReReviewPromptSettings,
   });
   app.slots.threadPanelAction({
     id: "pr",

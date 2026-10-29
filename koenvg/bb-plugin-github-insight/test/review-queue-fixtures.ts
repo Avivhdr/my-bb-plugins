@@ -30,6 +30,8 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     reviewDecision: "REVIEW_REQUIRED",
     headRefName: "rate-limits",
     headOid: "head-15",
+    additions: null,
+    deletions: null,
     url: "https://github.com/acme/api/pull/15",
     state: "open",
     closedAt: null,
@@ -40,6 +42,7 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     review: "needs_review",
     newActivity: [],
     thread: null,
+    reReview: false,
     skipLabel: null,
     ignored: false,
     ...overrides,
@@ -136,6 +139,7 @@ export interface PanelRpc {
   archiveReview: () => ActionResult | Promise<ActionResult>;
   markReviewed: () => ActionResult | Promise<ActionResult>;
   markNeedsReview: () => ActionResult | Promise<ActionResult>;
+  reReview: () => ActionResult | Promise<ActionResult>;
   markQueueSeen: () => ActionResult | Promise<ActionResult>;
   markThreadOpened: () => ActionResult | Promise<ActionResult>;
   hideRepo: () => ActionResult | Promise<ActionResult>;
@@ -172,6 +176,7 @@ export function panelRpc(getReviewQueue: QueueHandler, rpc: Partial<PanelRpc> = 
     archiveReview: () => ({ kind: "ok" as const }),
     markReviewed: () => ({ kind: "ok" as const }),
     markNeedsReview: () => ({ kind: "ok" as const }),
+    reReview: () => ({ kind: "ok" as const }),
     markQueueSeen: () => ({ kind: "ok" as const }),
     markThreadOpened: () => ({ kind: "ok" as const }),
     hideRepo: () => ({ kind: "ok" as const }),

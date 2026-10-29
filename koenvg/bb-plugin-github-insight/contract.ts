@@ -498,9 +498,20 @@ export type ViewerTeamsResult = z.infer<typeof viewerTeamsResultSchema>;
 const reviewInstructionsSchema = z.object({ instructions: z.string(), isDefault: z.boolean() });
 export type ReviewInstructions = z.infer<typeof reviewInstructionsSchema>;
 
+/** Which prompt's "How to review" part: Start review's, or Re-review's. Defaults to "review". */
+export const instructionsPromptSchema = z.enum(["review", "re-review"]);
+export type InstructionsPrompt = z.infer<typeof instructionsPromptSchema>;
+
+const getReviewInstructionsRequestSchema = z
+  .object({ prompt: instructionsPromptSchema.optional() })
+  .strict();
+
 /** null goes back to the default instructions. */
 const setReviewInstructionsRequestSchema = z
-  .object({ instructions: z.string().regex(/\S/).max(20_000).nullable() })
+  .object({
+    instructions: z.string().regex(/\S/).max(20_000).nullable(),
+    prompt: instructionsPromptSchema.optional(),
+  })
   .strict();
 
 const markNeedsReviewRequestSchema = prRefRequestSchema;
@@ -510,6 +521,11 @@ const markReviewedRequestSchema = prRefRequestSchema
   .extend({ headOid: z.string().min(1) })
   .strict();
 export type MarkReviewedRequest = z.infer<typeof markReviewedRequestSchema>;
+
+const reReviewRequestSchema = prRefRequestSchema
+  .extend({ threadId: z.string().min(1), headOid: z.string().min(1) })
+  .strict();
+export type ReReviewRequest = z.infer<typeof reReviewRequestSchema>;
 
 const markQueueSeenRequestSchema = z.object({ prs: z.array(prRefRequestSchema) }).strict();
 export type MarkQueueSeenRequest = z.infer<typeof markQueueSeenRequestSchema>;
@@ -600,6 +616,7 @@ export const rpcContract = defineRpcContract({
   archiveReview: { input: threadRequestSchema, output: actionResultSchema },
   markReviewed: { input: markReviewedRequestSchema, output: actionResultSchema },
   markNeedsReview: { input: markNeedsReviewRequestSchema, output: actionResultSchema },
+  reReview: { input: reReviewRequestSchema, output: actionResultSchema },
   markQueueSeen: { input: markQueueSeenRequestSchema, output: actionResultSchema },
   hideRepo: { input: repoVisibilityRequestSchema, output: actionResultSchema },
   showRepo: { input: repoVisibilityRequestSchema, output: actionResultSchema },
@@ -607,7 +624,10 @@ export const rpcContract = defineRpcContract({
   unignorePr: { input: prRefRequestSchema, output: actionResultSchema },
   getViewerTeams: { input: z.object({}).strict(), output: viewerTeamsResultSchema },
   setTeammatesTeam: { input: teammatesTeamRequestSchema, output: actionResultSchema },
-  getReviewInstructions: { input: z.object({}).strict(), output: reviewInstructionsSchema },
+  getReviewInstructions: {
+    input: getReviewInstructionsRequestSchema,
+    output: reviewInstructionsSchema,
+  },
   getActivity: { input: z.object({}).strict(), output: activityResultSchema },
   refreshActivity: { input: z.object({}).strict(), output: loadedActivitySchema },
   markActivityRead: {

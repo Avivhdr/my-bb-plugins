@@ -51,12 +51,18 @@ describe("parseReviewQueue", () => {
       reviewDecision: "REVIEW_REQUIRED",
       headRefName: "alice/retries",
       headOid: "a12a12a12a12a12a12a12a12a12a12a12a12a12a",
+      additions: 320,
+      deletions: 389,
       url: "https://github.com/acme/api/pull/12",
       state: "open",
       closedAt: null,
       labels: [],
       activity: null,
     });
+  });
+
+  it("reads missing line counts as null", () => {
+    expect(byNumber(queue, 7)).toMatchObject({ additions: null, deletions: null });
   });
 
   it("keeps the label names", () => {

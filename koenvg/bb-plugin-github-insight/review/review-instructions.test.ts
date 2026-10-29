@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REVIEW_INSTRUCTIONS } from "../core/review-prompt";
-import { createReviewInstructionsStore } from "./review-instructions";
+import { DEFAULT_RE_REVIEW_INSTRUCTIONS, DEFAULT_REVIEW_INSTRUCTIONS } from "../core/review-prompt";
+import { createReviewInstructionsStore, RE_REVIEW_INSTRUCTIONS } from "./review-instructions";
 
 function fakeKv() {
   const entries = new Map<string, unknown>();
@@ -33,7 +33,7 @@ describe("review instructions store", () => {
     expect(await store.set("  Mine\n")).toEqual({ kind: "ok" });
 
     expect(await store.get()).toEqual({ instructions: "Mine", isDefault: false });
-    expect(kv.entries.get("review-instructions")).toEqual({ v: 1, instructions: "Mine" });
+    expect(kv.entries.get("review-instructions")).toEqual({ v: 2, instructions: "Mine" });
   });
 
   it("goes back to the defaults on null", async () => {
@@ -43,6 +43,37 @@ describe("review instructions store", () => {
     await store.set(null);
 
     expect(await store.get()).toMatchObject({ isDefault: true });
+  });
+
+  it("keeps the re-review instructions under their own key and defaults", async () => {
+    const kv = fakeKv();
+    const review = createReviewInstructionsStore(kv);
+    const reReview = createReviewInstructionsStore(kv, RE_REVIEW_INSTRUCTIONS);
+
+    expect(await reReview.get()).toEqual({
+      instructions: DEFAULT_RE_REVIEW_INSTRUCTIONS,
+      isDefault: true,
+    });
+    await reReview.set("Only tests");
+
+    expect(kv.entries.get("re-review-instructions")).toEqual({ v: 2, instructions: "Only tests" });
+    expect(await review.get()).toMatchObject({ isDefault: true });
+  });
+
+  it("reads How to review text saved by v1 with the default Summary rules and Rules", async () => {
+    const kv = fakeKv();
+    kv.entries.set("re-review-instructions", { v: 1, instructions: "Only tests" });
+
+    const { instructions, isDefault } = await createReviewInstructionsStore(
+      kv,
+      RE_REVIEW_INSTRUCTIONS,
+    ).get();
+
+    expect(isDefault).toBe(false);
+    expect(instructions.startsWith("## How to review\n\nOnly tests\n\n## Summary rules")).toBe(
+      true,
+    );
+    expect(instructions).toContain("- List only what still needs work:");
   });
 
   it("reads an entry of another version as the defaults", async () => {

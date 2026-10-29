@@ -25,6 +25,8 @@
           },
           "headRefName": "alice/retries",
           "headRefOid": "a12a12a12a12a12a12a12a12a12a12a12a12a12a",
+          "additions": 320,
+          "deletions": 389,
           "reviewDecision": "REVIEW_REQUIRED",
           "commits": {
             "nodes": [

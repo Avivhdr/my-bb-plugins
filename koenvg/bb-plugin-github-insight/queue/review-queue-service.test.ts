@@ -8,6 +8,8 @@ import type { PrResolution } from "../pr-lookup";
 import {
   createReviewQueueService,
   REVIEW_QUEUE_STORAGE_KEY,
+  NOT_A_REVIEW_THREAD_MESSAGE,
+  NOT_REVIEWED_MESSAGE,
   SHARED_ENVIRONMENT_MESSAGE,
   type QueueProject,
   type QueueThread,
@@ -28,6 +30,8 @@ function queuePr(repo: string, number: number, overrides: Partial<QueuePr> = {})
     reviewDecision: "REVIEW_REQUIRED",
     headRefName: `feature-${number}`,
     headOid: `head-${number}`,
+    additions: null,
+    deletions: null,
     url: `https://github.com/${repo}/pull/${number}`,
     state: "open",
     closedAt: null,
@@ -153,6 +157,8 @@ function serviceWith(overrides: Partial<ReviewQueueServiceDeps> = {}) {
     archiveThread: async (threadId) => {
       archived.push(threadId);
     },
+    sendMessage: async () => "sent",
+    reReviewInstructions: async () => "Look for bugs.",
     resolveEnvironmentPr: async () => ({ kind: "no_pr" }),
     kv,
     publish: (result) => published.push(result),
@@ -860,7 +866,10 @@ describe("new activity after the mark", () => {
     expect(
       await service.markReviewed({ repo: "acme/api", number: 15, headOid: "head-15" }),
     ).toEqual({ kind: "ok" });
-    expect(warnings).toEqual(["Could not delete seen comments of acme/api#15: disk full"]);
+    expect([...warnings].sort()).toEqual([
+      "Could not delete seen comments of acme/api#15: disk full",
+      "Could not delete the re-review of acme/api#15: disk full",
+    ]);
   });
 
   it("reads the mark time and seen comments of a PR", async () => {
@@ -1357,6 +1366,236 @@ describe("markReviewed", () => {
       kind: "error",
       message: "disk full",
     });
+  });
+});
+
+describe("reReview", () => {
+  const MARKED_AT = Date.parse("2026-10-07T08:30:00Z");
+  const SENT_AT = Date.parse("2026-10-07T09:00:00Z");
+  const BETWEEN = "2026-10-07T08:45:00Z";
+  const AFTER_SENT = "2026-10-07T09:15:00Z";
+
+  function sentReReview(headOid: string, sentAt = SENT_AT) {
+    return [
+      "re-review:acme/api#15",
+      { v: 1, owner: "acme", repo: "api", number: 15, headOid, sentAt },
+    ] as const;
+  }
+
+  function reviewedWithThread(
+    pr: QueuePr,
+    overrides: Partial<ReviewQueueServiceDeps> = {},
+  ): ReturnType<typeof serviceWith> {
+    const setup = serviceWith({
+      fetchReviewQueue: async () => queueOf([], [pr]),
+      listReviewThreads: async () => [reviewThread("thr_review", { status: "idle" })],
+      readPluginMetadata: metadataOf({ thr_review: reviewPrEntry("acme/api", 15) }),
+      ...overrides,
+    });
+    setup.kv.entries.set(...mark("acme/api", 15, "abc123", MARKED_AT));
+    return setup;
+  }
+
+  function comments(postedAt: string) {
+    return {
+      conversationComments: [{ id: "IC_1", postedAt }],
+      inlineComments: [],
+      lastRequestedAt: null,
+    };
+  }
+
+  async function reReviewOf(service: ReturnType<typeof serviceWith>["service"]) {
+    return firstReviewRequest(await service.refreshReviewQueue()).reReview;
+  }
+
+  it("is due when a reviewed PR with a review thread has a new commit", async () => {
+    const { service } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }));
+
+    expect(await reReviewOf(service)).toBe(true);
+  });
+
+  it("is due when a reviewed PR with a review thread has new comments", async () => {
+    const { service } = reviewedWithThread(
+      queuePr("acme/api", 15, { headOid: "abc123", activity: comments(BETWEEN) }),
+    );
+
+    expect(await reReviewOf(service)).toBe(true);
+  });
+
+  it("is not due when nothing changed since the review", async () => {
+    const { service } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "abc123" }));
+
+    expect(await reReviewOf(service)).toBe(false);
+  });
+
+  it("is not due without a review thread", async () => {
+    const { service } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }), {
+      listReviewThreads: async () => [],
+    });
+
+    expect(await reReviewOf(service)).toBe(false);
+  });
+
+  it("is not due for a thread on the PR's branch that is not a review thread", async () => {
+    const { service } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }), {
+      listReviewThreads: async () => [],
+      listThreads: async () => [thread("thr_branch", "env_branch", 1)],
+      resolveEnvironmentPr: async () => linkedTo("acme", "api", 15),
+    });
+
+    expect(await reReviewOf(service)).toBe(false);
+  });
+
+  it("is not due after a re-review at the current head with nothing newer", async () => {
+    const { service, kv } = reviewedWithThread(
+      queuePr("acme/api", 15, { headOid: "def456", activity: comments(BETWEEN) }),
+    );
+    kv.entries.set(...sentReReview("def456"));
+
+    const pr = firstReviewRequest(await service.refreshReviewQueue());
+
+    expect(pr.reReview).toBe(false);
+    expect(pr).toMatchObject({ review: "updated_since_review", newActivity: ["new_comments"] });
+  });
+
+  it("is due again after a push since the re-review", async () => {
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "fed789" }));
+    kv.entries.set(...sentReReview("def456"));
+
+    expect(await reReviewOf(service)).toBe(true);
+  });
+
+  it("is due again after a comment since the re-review", async () => {
+    const { service, kv } = reviewedWithThread(
+      queuePr("acme/api", 15, { headOid: "def456", activity: comments(AFTER_SENT) }),
+    );
+    kv.entries.set(...sentReReview("def456"));
+
+    expect(await reReviewOf(service)).toBe(true);
+  });
+
+  it("ignores a re-review from before the last mark", async () => {
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }));
+    kv.entries.set(...sentReReview("def456", MARKED_AT - 1));
+
+    expect(await reReviewOf(service)).toBe(true);
+  });
+
+  it("sends the prompt with the reviewed commit and the instructions, then records it", async () => {
+    const sent: [string, string][] = [];
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }), {
+      sendMessage: async (threadId, text) => {
+        sent.push([threadId, text]);
+        return "sent";
+      },
+      now: () => SENT_AT,
+    });
+    await service.refreshReviewQueue();
+
+    const result = await service.reReview({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "def456",
+    });
+
+    expect(result).toEqual({ kind: "ok" });
+    expect(sent).toHaveLength(1);
+    const [threadId, prompt] = sent[0]!;
+    expect(threadId).toBe("thr_review");
+    expect(prompt).toContain("Re-review pull request #15: PR 15");
+    expect(prompt).toContain("`git diff abc123..HEAD`");
+    expect(prompt).toContain("2026-10-07T08:30:00.000Z");
+    expect(prompt).toMatch(/\n\nLook for bugs\.\n$/);
+    expect(kv.entries.get("re-review:acme/api#15")).toEqual({
+      v: 1,
+      owner: "acme",
+      repo: "api",
+      number: 15,
+      headOid: "def456",
+      sentAt: SENT_AT,
+    });
+  });
+
+  it("publishes the PR as no longer due once sent", async () => {
+    const { service, published } = reviewedWithThread(
+      queuePr("acme/api", 15, { headOid: "def456" }),
+      { now: () => SENT_AT },
+    );
+    await service.refreshReviewQueue();
+
+    await service.reReview({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "def456",
+    });
+
+    expect(firstReviewRequest(published.at(-1)!).reReview).toBe(false);
+  });
+
+  it("refuses a thread that reviews another PR", async () => {
+    const sendMessage = vi.fn(async () => "sent");
+    const { service } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }), {
+      readPluginMetadata: metadataOf({ thr_review: reviewPrEntry("acme/api", 16) }),
+      sendMessage,
+    });
+
+    const result = await service.reReview({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "def456",
+    });
+
+    expect(result).toEqual({ kind: "error", message: NOT_A_REVIEW_THREAD_MESSAGE });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a PR without a reviewed mark", async () => {
+    const sendMessage = vi.fn(async () => "sent");
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15), { sendMessage });
+    kv.entries.delete("reviewed:acme/api#15");
+
+    const result = await service.reReview({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "head-15",
+    });
+
+    expect(result).toEqual({ kind: "error", message: NOT_REVIEWED_MESSAGE });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns the send failure and records nothing", async () => {
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }), {
+      sendMessage: async () => {
+        throw new Error("Thread is gone");
+      },
+    });
+
+    const result = await service.reReview({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "def456",
+    });
+
+    expect(result).toEqual({ kind: "error", message: "Thread is gone" });
+    expect(kv.entries.has("re-review:acme/api#15")).toBe(false);
+  });
+
+  it("forgets the re-review when the PR is marked reviewed or needs review again", async () => {
+    const { service, kv } = reviewedWithThread(queuePr("acme/api", 15, { headOid: "def456" }));
+    kv.entries.set(...sentReReview("def456"));
+
+    await service.markReviewed({ repo: "acme/api", number: 15, headOid: "def456" });
+    expect(kv.entries.has("re-review:acme/api#15")).toBe(false);
+
+    kv.entries.set(...sentReReview("def456"));
+    await service.markNeedsReview({ repo: "acme/api", number: 15 });
+    expect(kv.entries.has("re-review:acme/api#15")).toBe(false);
   });
 });
 

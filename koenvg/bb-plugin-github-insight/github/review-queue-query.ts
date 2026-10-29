@@ -16,6 +16,8 @@ fragment QueuePr on PullRequest {
   repository { nameWithOwner }
   headRefName
   headRefOid
+  additions
+  deletions
   reviewDecision
   labels(first: 20) { nodes { name } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }

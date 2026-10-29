@@ -11,7 +11,12 @@ import type {
   rpcContract,
 } from "../contract";
 import type { PrInsight } from "../core/overview";
-import { buildReviewPrompt, DEFAULT_REVIEW_INSTRUCTIONS } from "../core/review-prompt";
+import {
+  buildReviewPrompt,
+  DEFAULT_RE_REVIEW_INSTRUCTIONS,
+  DEFAULT_REVIEW_INSTRUCTIONS,
+  reviewPromptHead,
+} from "../core/review-prompt";
 import {
   activityItem,
   activityOk,
@@ -1185,6 +1190,108 @@ describe("Mark actions", () => {
   });
 });
 
+describe("Line counts on the PR row", () => {
+  it("shows the lines added and removed", async () => {
+    const slot = renderPanel("", () => ok(view([queuePr({ additions: 320, deletions: 389 })])));
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    const counts = within(card).getByTestId("queue-line-counts");
+    expect(counts.textContent).toBe("+320-389");
+    expect(counts.getAttribute("title")).toBe("320 lines added, 389 removed");
+  });
+
+  it("shows no counts for a PR stored before they were read", async () => {
+    const slot = renderPanel("", () => ok(view([queuePr()])));
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).queryByTestId("queue-line-counts")).toBeNull();
+  });
+});
+
+describe("Re-review", () => {
+  const idleReview = { ...reviewThread, status: "idle" as const };
+  const changed = queuePr({ review: "updated_since_review", thread: idleReview, reReview: true });
+
+  it("takes the place of an idle review thread's status when Re-review is due", async () => {
+    const slot = renderPanel("", () => ok(view([changed])));
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).getByRole("button", { name: "Re-review" })).toBeTruthy();
+    expect(within(card).queryByTestId("review-status")).toBeNull();
+  });
+
+  it.each([
+    ["the agent runs", { thread: reviewThread }],
+    ["the agent came back and was not opened", { thread: { ...idleReview, returned: "finished" } }],
+    ["nothing changed since the last re-review", { reReview: false }],
+    [
+      "the thread is not a review thread",
+      { thread: { ...idleReview, id: "thr_branch", isReviewThread: false } },
+    ],
+  ] as const)("shows the thread status when %s", async (_, overrides) => {
+    const slot = renderPanel("", () => ok(view([{ ...changed, ...overrides }])));
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).queryByRole("button", { name: "Re-review" })).toBeNull();
+    expect(within(card).getByTestId("review-status")).toBeTruthy();
+  });
+
+  it("sends the thread and the head shown on the card, and stays in the list", async () => {
+    let answer: (result: ActionResult) => void = () => {};
+    const slot = renderPanel("", () => ok(view([changed])), {
+      reReview: () => new Promise((resolve) => (answer = resolve)),
+    });
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    const button = within(card).getByRole("button", { name: "Re-review" });
+    fireEvent.click(button);
+
+    await vi.waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+    const call = slot.inspection.rpcCalls.find((candidate) => candidate.method === "reReview");
+    expect(call?.input).toEqual({
+      threadId: "thr_review",
+      repo: "acme/api",
+      number: 15,
+      headOid: "head-15",
+    });
+    expect(slot.inspection.navigateCalls).toEqual([]);
+    await act(async () => answer({ kind: "ok" }));
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("shows the error when the re-review could not be sent", async () => {
+    const slot = renderPanel("", () => ok(view([changed])), {
+      reReview: () => ({ kind: "error", message: "Thread is gone" }),
+    });
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    fireEvent.click(within(card).getByRole("button", { name: "Re-review" }));
+
+    expect(await slot.findByText(/Thread is gone/)).toBeTruthy();
+  });
+
+  it("moves Open thread to the row menu", async () => {
+    const slot = renderPanel("", () => ok(view([changed])));
+
+    openActions(await findCard(slot, "Direct", "acme/api#15"));
+    const items = await slot.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Open in GitHub",
+      "Open thread",
+      "Mark reviewed",
+      "Ignore",
+      "Archive thread",
+    ]);
+    fireEvent.click(items[1]!);
+
+    await vi.waitFor(() =>
+      expect(slot.inspection.navigateCalls).toEqual([
+        { method: "toThread", threadId: "thr_review" },
+      ]),
+    );
+  });
+});
+
 describe("Thread on the PR row", () => {
   it.each([
     ["running", "Running"],
@@ -1696,13 +1803,30 @@ describe("review prompt settings", () => {
     const box = (await slot.findByRole("textbox")) as HTMLTextAreaElement;
     expect(box.value).toBe(DEFAULT_REVIEW_INSTRUCTIONS);
     fireEvent.change(box, { target: { value: "Check {repo} for N+1 queries." } });
-    expect(slot.getByText(/Check acme\/api for N\+1 queries\./)).toBeTruthy();
     fireEvent.click(slot.getByRole("button", { name: "Save" }));
 
     await slot.findByText("Saved. The next review uses it.");
     expect(
       slot.inspection.rpcCalls.find((call) => call.method === "setReviewInstructions")?.input,
-    ).toEqual({ instructions: "Check {repo} for N+1 queries." });
+    ).toEqual({ instructions: "Check {repo} for N+1 queries.", prompt: "review" });
+  });
+
+  it("shows the plugin's part of the prompt above the editable part, always open", async () => {
+    const slot = renderSettings();
+
+    const box = await slot.findByRole("textbox", { name: "Yours to edit" });
+    const head = slot.getByTestId("prompt-head");
+    expect(head.textContent).toBe(
+      reviewPromptHead({
+        number: 123,
+        title: "Add rate limits",
+        url: "https://github.com/acme/api/pull/123",
+        repo: "acme/api",
+      }),
+    );
+    expect(head.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slot.getAllByRole("textbox")).toHaveLength(1);
+    expect(slot.container.querySelector("details")).toBeNull();
   });
 
   it("does not save empty instructions", async () => {
@@ -1729,7 +1853,84 @@ describe("review prompt settings", () => {
     );
     expect(
       slot.inspection.rpcCalls.find((call) => call.method === "setReviewInstructions")?.input,
-    ).toEqual({ instructions: null });
+    ).toEqual({ instructions: null, prompt: "review" });
+  });
+});
+
+describe("re-review prompt settings", () => {
+  const section = app.settingsSections.find(
+    (registration) => registration.id === "re-review-prompt",
+  )!;
+
+  function renderSettings(rpc: Partial<PanelRpc> = {}) {
+    return renderSlot<Record<string, never>, typeof rpcContract>(
+      section,
+      {},
+      { rpc: panelRpc(() => ok(view([])), rpc) },
+    );
+  }
+
+  it("registers a Re-review prompt section after the Review prompt one", () => {
+    expect(section).toMatchObject({ title: "Re-review prompt" });
+    expect(app.settingsSections.map((registration) => registration.id)).toEqual([
+      "review-prompt",
+      "re-review-prompt",
+    ]);
+  });
+
+  it("reads the re-review instructions and shows the re-review head above them", async () => {
+    const slot = renderSettings({
+      getReviewInstructions: () => ({
+        instructions: DEFAULT_RE_REVIEW_INSTRUCTIONS,
+        isDefault: true,
+      }),
+    });
+
+    const box = (await slot.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(box.value).toBe(DEFAULT_RE_REVIEW_INSTRUCTIONS);
+    expect(
+      slot.inspection.rpcCalls.find((call) => call.method === "getReviewInstructions")?.input,
+    ).toEqual({ prompt: "re-review" });
+    const head = slot.getByTestId("prompt-head").textContent ?? "";
+    expect(head.startsWith("Re-review pull request #123: Add rate limits")).toBe(true);
+    expect(head).toContain("I reviewed this PR at commit 3f2a9c1e7b4d");
+    expect(head).toContain("## Steps");
+    expect(head).not.toContain("## How to review");
+  });
+
+  it("saves the re-review instructions and says the next re-review uses them", async () => {
+    const slot = renderSettings({
+      getReviewInstructions: () => ({
+        instructions: DEFAULT_RE_REVIEW_INSTRUCTIONS,
+        isDefault: true,
+      }),
+    });
+
+    fireEvent.change(await slot.findByRole("textbox"), { target: { value: "Only check tests." } });
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+
+    await slot.findByText("Saved. The next re-review uses it.");
+    expect(
+      slot.inspection.rpcCalls.find((call) => call.method === "setReviewInstructions")?.input,
+    ).toEqual({ instructions: "Only check tests.", prompt: "re-review" });
+  });
+
+  it("resets to the re-review default", async () => {
+    const slot = renderSettings({
+      getReviewInstructions: () => ({ instructions: "Mine", isDefault: false }),
+    });
+
+    await slot.findByRole("textbox");
+    fireEvent.click(slot.getByRole("button", { name: "Reset to default" }));
+
+    await vi.waitFor(() =>
+      expect((slot.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+        DEFAULT_RE_REVIEW_INSTRUCTIONS,
+      ),
+    );
+    expect(
+      slot.inspection.rpcCalls.find((call) => call.method === "setReviewInstructions")?.input,
+    ).toEqual({ instructions: null, prompt: "re-review" });
   });
 });
 
