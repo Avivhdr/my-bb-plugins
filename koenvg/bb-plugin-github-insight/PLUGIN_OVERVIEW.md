@@ -32,5 +32,5 @@ See the checks of a thread's pull request, and the pull requests that wait for y
 
 The plugin uses the `gh` CLI login of the host that runs the thread. The Pull Requests panel uses the `gh` login of bb's primary host. It needs no token of its own.
 
-- An **Activity** tab in the Pull Requests panel lists comments, replies, and mentions that need you on your PRs and on the PRs you take part in, also when you hid the repo from your review lists. A click opens the PR in the side panel at that comment, where you can read the conversation and the diff and reply. Read state syncs with GitHub notifications. A dot on the Pull Requests rail icon shows unread activity.
+- An **Activity** tab in the Pull Requests panel lists comments, replies, and mentions that need you on your PRs and on the PRs you take part in, also when you hid the repo from your review lists. A click opens the PR in the side panel at that comment, where you can read the conversation and the diff and reply. Read state syncs with GitHub notifications.
 - The side panel of the Pull Requests panel is the full PR tab, Overview and Files, for any PR, also one without a bb thread.

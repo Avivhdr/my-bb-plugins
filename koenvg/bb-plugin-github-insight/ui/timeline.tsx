@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -338,58 +337,11 @@ function DescriptionSection({ timeline }: { timeline: Timeline }) {
   );
 }
 
-const FOLDED_HEIGHT_PX = 320;
-
 function DescriptionBody({ body }: { body: string }) {
-  const content = useRef<HTMLDivElement>(null);
-  const [overflows, setOverflows] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  useLayoutEffect(() => {
-    const element = content.current;
-    if (element === null) return;
-    const measure = () => setOverflows(element.scrollHeight > FOLDED_HEIGHT_PX + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [body]);
   if (body.trim() === "") {
     return <p className="text-sm text-muted-foreground italic">No description provided.</p>;
   }
-  const folded = overflows && !expanded;
-  return (
-    <div className="flex flex-col gap-1">
-      <div
-        className={cn(
-          "relative overflow-hidden",
-          folded &&
-            "max-h-80 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-16 after:bg-gradient-to-t after:from-background after:to-transparent",
-        )}
-      >
-        <div ref={content}>
-          <Body markdown={body} />
-        </div>
-      </div>
-      {overflows && (
-        <button
-          type="button"
-          aria-expanded={expanded}
-          className={cn(QUIET_BUTTON, "-ml-2.5 self-start")}
-          onClick={() => setExpanded((shown) => !shown)}
-        >
-          {expanded ? "Show less" : "Show full description"}
-          <Icon
-            name="ChevronDown"
-            aria-hidden="true"
-            className={cn(
-              "size-3.5 transition-transform duration-200 motion-reduce:transition-none",
-              expanded && "rotate-180",
-            )}
-          />
-        </button>
-      )}
-    </div>
-  );
+  return <Body markdown={body} />;
 }
 
 function DescriptionSkeleton() {

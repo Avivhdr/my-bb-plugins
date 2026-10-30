@@ -14,7 +14,7 @@ PR tab (actionId "pr", layout flush)
 - `ui/pr-panel.tsx` registers as the only thread panel action. It keeps the selected sub-tab for each thread in module memory (`ui/pr-sub-tab.ts`), so the choice survives a switch to another side-panel tab or thread. A new PR tab starts on Overview.
 - Files mounts the first time it shows, then stays mounted and hidden while Overview shows. So `getReview` runs only after the first show, and scroll position, comment position, and typed text stay.
 - The sidebar PR badge and the banner text open the PR tab on Overview (`openPrOverview` in `ui/use-pr-panel-navigation.ts`). The tab keeps `params` null, so bb reuses the open PR tab. The sub-tab comes from the `pr` intent (`show-overview` or `show-files`).
-- A "Description" section below the merge status shows the PR description (author, "opened this", Markdown body, or "No description provided."). A description taller than 320px folds behind "Show full description". The timeline query reads it with the events, so it costs no extra call.
+- A "Description" section below the merge status shows the PR description (author, "opened this", Markdown body, or "No description provided."). The description always shows in full. The timeline query reads it with the events, so it costs no extra call.
 - The conversation (`ui/timeline.tsx`) reads `getTimeline` when Overview mounts and when the insight `refreshedAt` changes. It is not in the snapshot store. A failed read shows an error and "Retry" in the conversation and does not hide the status. The query (`github/timeline-query.ts`) reads the newest 100 PR comments, reviews, commits, and ready for review, closed, reopened, and merged events. "Load older events" reads the next 100. `core/timeline.ts` drops the closed event that GitHub adds to a merge and groups commits in a row.
 - A review shows its verdict, body, and "N inline comments". The link selects Files and jumps to the first thread of that review that Files shows. If all of them are resolved, it turns on "Show resolved" first. The timeline does not show inline comments.
 - The comment box posts a PR comment with RPC `addPrComment` (the `addComment` mutation on the PR node id), then reads the newest page again. On a locked PR, only a viewer who can update the PR sees the box.
@@ -138,7 +138,7 @@ composer banner --markThreadOpened--> server --> deletes "review-returned:<threa
 - "Mute" leaves out a person's activity, for example a CI account that GitHub reports as a user. "N muted" lists them with "Unmute".
 - Read state follows GitHub both ways. A notification you read on github.com marks the items up to its `last_read_at` read here. When nothing on a PR is unread here, the plugin marks its GitHub notification read (`PATCH notifications/threads/<id>`).
 - The kv entry `activity` (`{ v: 1, prs, read, muted, result }`) keeps the items per PR, the read ids, the muted logins, and the last result. Each load and each mark publishes the result on `activity.updated`. A failed load keeps the last good feed with the error. Items leave once they are older than 3 days.
-- The Activity tab shows the unread count. The rail icon and the sidebar row show a dot while anything is unread, next to the review count. Unread activity does not add to the review count.
+- The Activity tab shows the unread count. The sidebar row shows a dot while anything is unread, next to the review count. The rail icon does not. Unread activity does not add to the review count.
 
 ### Sidebar badge
 

@@ -326,7 +326,7 @@ describe("conversation timeline", () => {
     expect(slot.getByText("No conversation yet")).toBeTruthy();
   });
 
-  it("folds a long description until the user shows all of it", async () => {
+  it("shows a long description in full, with no fold toggle", async () => {
     const height = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(900);
     try {
       const slot = renderTimeline({
@@ -334,12 +334,8 @@ describe("conversation timeline", () => {
         description: { body: "A long description", author: "koenvg", at },
       });
 
-      const toggle = await slot.findByRole("button", { name: /Show full description/ });
-      expect(toggle.getAttribute("aria-expanded")).toBe("false");
-      fireEvent.click(toggle);
-      expect(slot.getByRole("button", { name: /Show less/ }).getAttribute("aria-expanded")).toBe(
-        "true",
-      );
+      expect(await slot.findByText("A long description")).toBeTruthy();
+      expect(slot.queryByRole("button", { name: /Show full description/ })).toBeNull();
     } finally {
       height.mockRestore();
     }

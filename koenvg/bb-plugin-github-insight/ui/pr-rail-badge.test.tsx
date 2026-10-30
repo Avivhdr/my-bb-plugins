@@ -97,10 +97,7 @@ describe("Pull Requests rail badge", () => {
   it("attaches once the rail item appears", async () => {
     const slot = renderOverlay(() => ok(view([queuePr()])));
     await vi.waitFor(() =>
-      expect(slot.inspection.rpcCalls.map((call) => call.method).sort()).toEqual([
-        "getActivity",
-        "getReviewQueue",
-      ]),
+      expect(slot.inspection.rpcCalls.map((call) => call.method)).toEqual(["getReviewQueue"]),
     );
 
     const item = addRailItem();
@@ -138,43 +135,22 @@ describe("Pull Requests rail badge", () => {
   });
 });
 
-describe("Pull Requests rail activity dot", () => {
-  it("shows a dot for unread comments, also with nothing to review", async () => {
+describe("Pull Requests rail activity", () => {
+  it("shows no dot for unread comments", async () => {
     const item = addRailItem();
-    renderSlot<object, typeof rpcContract>(
+    const slot = renderSlot<object, typeof rpcContract>(
       { component: overlay.component },
       {},
       {
         rpc: {
-          ...panelRpc(() => ok(view([]))),
+          ...panelRpc(() => ok(view([queuePr()]))),
           getActivity: () => activityOk([activityPr([activityItem()])]),
         },
       },
     );
 
-    const dot = await within(item).findByTestId("rail-activity-dot");
-    expect(dot.getAttribute("aria-label")).toBe("1 unread comments");
-    expect(within(item).queryByTestId("rail-review-count")).toBeNull();
-  });
-});
-
-describe("Pull Requests rail ready count", () => {
-  it("moves the activity dot aside to make room for the ready count", async () => {
-    const item = addRailItem();
-    const finished = { ...reviewThread, status: "idle", returned: "finished" } as const;
-    renderSlot<object, typeof rpcContract>(
-      { component: overlay.component },
-      {},
-      {
-        rpc: {
-          ...panelRpc(() => ok({ ...view([queuePr({ thread: finished })]), hasReturned: true })),
-          getActivity: () => activityOk([activityPr([activityItem()])]),
-        },
-      },
-    );
-
-    await within(item).findByTestId("rail-ready-count");
-    const dot = await within(item).findByTestId("rail-activity-dot");
-    expect(dot.className).toContain("right-1/2");
+    await within(item).findByTestId("rail-review-count");
+    expect(slot.inspection.rpcCalls.map((call) => call.method)).not.toContain("getActivity");
+    expect(within(item).queryByRole("img", { name: /unread comments/ })).toBeNull();
   });
 });

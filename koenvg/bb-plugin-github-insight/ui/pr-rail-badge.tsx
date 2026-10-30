@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { reviewBadge } from "../core/review-badge";
-import { useActivity } from "./use-activity";
 import { useReviewQueue } from "./use-review-queue";
 
 const RAIL_ITEM = '[data-nav-rail-item="github-insight/pull-requests"]';
@@ -13,28 +12,14 @@ const PILL =
 export function PrRailBadge() {
   const item = useHostElement(RAIL_ITEM);
   const badge = reviewBadge(useReviewQueue().view);
-  const unreadActivity = useActivity().view?.unread ?? 0;
-  if (item === null || (badge === null && unreadActivity === 0)) return null;
-  const inProgress = badge?.inProgress ?? 0;
-  const ready = badge?.ready ?? 0;
-  const anyCount = badge?.waiting != null || inProgress > 0 || ready > 0;
+  if (item === null || badge === null) return null;
+  const { inProgress, ready } = badge;
+  const anyCount = badge.waiting !== null || inProgress > 0 || ready > 0;
   return createPortal(
     // Plugin CSS only applies inside an element tagged with the plugin id.
     <span data-bb-plugin="github-insight" className="pointer-events-none relative w-0 self-stretch">
       <span className="absolute inset-y-0 right-0 aspect-square">
-        {unreadActivity > 0 && (
-          <span
-            role="img"
-            aria-label={`${unreadActivity} unread comments`}
-            data-testid="rail-activity-dot"
-            style={CUTOUT}
-            // The ready count takes the bottom-right corner, so the dot moves to the bottom-left.
-            className={`absolute top-1/2 mt-1 size-2 rounded-full bg-attention ${
-              ready > 0 ? "right-1/2 mr-1" : "left-1/2 ml-1"
-            }`}
-          />
-        )}
-        {badge !== null && badge.waiting !== null && (
+        {badge.waiting !== null && (
           <span
             data-testid="rail-review-count"
             style={CUTOUT}
@@ -71,7 +56,7 @@ export function PrRailBadge() {
             </span>
           </span>
         )}
-        {badge?.returned && !anyCount && (
+        {badge.returned && !anyCount && (
           <span
             role="img"
             aria-label="Review agent came back"
