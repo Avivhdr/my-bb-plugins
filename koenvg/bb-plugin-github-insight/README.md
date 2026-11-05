@@ -310,6 +310,8 @@ submitReview --> server: load the review again (files, threads, head, drafts fro
 
 An image in a PR description, timeline comment, or review comment that is a file in a GitHub repo (`github.com/<owner>/<repo>/raw/<ref>/<path>`, `github.com/<owner>/<repo>/blob/<ref>/<path>?raw=true`, or `raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>`) loads only in a browser logged in to GitHub, so a private repo's image showed broken. `ui/github-markdown.tsx` wraps bb's Markdown: after it renders, each such `<img>` gets its bytes from RPC `getRepoImage`, which reads the file with the primary host's `gh` (`readRepoImage` on the host) and returns it as a PNG, JPEG, GIF, or WebP up to 4 MiB. The ref is a commit SHA or a ref name without a slash. Loaded images stay cached for the session; a failed read shows its reason on hover and is tried again on the next render. Attachments (`github.com/user-attachments/assets/...`) keep using the signed URLs from GitHub's HTML.
 
+The same wrapper turns each bare Jira key (`DEV-123`, `PUX-123`) in a description or comment into a link to `https://engineering-collibra.atlassian.net/browse/<key>` (`core/jira-links.ts`). Keys inside code, existing links, URLs, and branch-like words (`kvg/DEV-1-fix`) stay as written.
+
 Raw file reads send `Accept: application/vnd.github.raw`. With `application/vnd.github.raw+json`, GitHub labels the bytes `charset=utf-8` and `gh` fails to decode them as text ("transform: short source buffer").
 
 ### Image comparisons

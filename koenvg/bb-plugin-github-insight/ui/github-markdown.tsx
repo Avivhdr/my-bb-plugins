@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Markdown, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../contract";
 import type { ImageWireResult } from "../core/image-content";
+import { linkJiraKeys } from "../core/jira-links";
 import { parseRepoImageUrl } from "../core/repo-image-url";
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
@@ -26,7 +27,7 @@ function loadRepoImage(rpc: Rpc, url: string): Promise<ImageWireResult> {
 /**
  * bb's Markdown, plus images that are files in a GitHub repo (`github.com/<o>/<r>/raw/...`).
  * GitHub serves those only to a logged-in browser, so the plugin reads them with `gh` and swaps
- * the image source for the bytes.
+ * the image source for the bytes. Bare Jira keys (`DEV-123`, `PUX-123`) become links to the ticket.
  */
 export function GithubMarkdown({ content, className }: { content: string; className?: string }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -60,7 +61,7 @@ export function GithubMarkdown({ content, className }: { content: string; classN
 
   return (
     <div ref={root} className={className}>
-      <Markdown content={content} />
+      <Markdown content={linkJiraKeys(content)} />
     </div>
   );
 }
