@@ -48,6 +48,14 @@ export function visibleThreads(
   };
 }
 
+/** Only the threads with these ids, resolved or not. */
+export function onlyThreads(threads: ThreadPlacement, ids: ReadonlySet<string>): ThreadPlacement {
+  return {
+    placed: threads.placed.filter(({ thread }) => ids.has(thread.id)),
+    outdated: threads.outdated.filter((thread) => ids.has(thread.id)),
+  };
+}
+
 export interface CommentHolders {
   threadIds: Set<string>;
   paths: Set<string>;

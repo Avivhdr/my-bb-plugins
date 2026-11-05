@@ -6,7 +6,8 @@ import { commentStops } from "../core/comment-stops";
 import { splitByCommit } from "../core/draft-commits";
 import type { ReviewFile } from "../core/pr-files";
 import type { PrHead } from "../core/pr-head";
-import type { ListedCommentDraft, SummaryDraft } from "../core/review-drafts";
+import type { Drafts } from "../core/drafts";
+import { hasText, type ListedCommentDraft, type SummaryDraft } from "../core/review-drafts";
 import {
   isReviewUpdateFor,
   REVIEW_DRAFTS_UPDATED_CHANNEL,
@@ -16,6 +17,7 @@ import type { ViewedMarks } from "../core/viewed-marks";
 import {
   commentHolders,
   openThreadCounts,
+  onlyThreads,
   openThreads,
   threadsWithComments,
   visibleThreads,
@@ -204,6 +206,7 @@ function FilesTabContent({ threadId, jump }: FilesTabProps) {
           imagesActive={!refreshing && !revalidating}
           imageGeneration={generation}
           commentDrafts={result.commentDrafts}
+          replyDrafts={result.drafts}
           summaryDraft={result.summaryDraft}
           viewedMarks={result.viewedMarks}
           newCommentIds={result.newCommentIds}
@@ -227,6 +230,8 @@ interface ReviewContentProps {
   imagesActive: boolean;
   imageGeneration: number;
   commentDrafts: readonly ListedCommentDraft[];
+  /** Unposted replies on review threads, by thread id. */
+  replyDrafts: Drafts;
   summaryDraft: SummaryDraft | null;
   viewedMarks: ViewedMarks;
   newCommentIds: readonly string[];
@@ -246,6 +251,7 @@ function ReviewContent({
   imagesActive,
   imageGeneration,
   commentDrafts,
+  replyDrafts,
   summaryDraft,
   viewedMarks,
   newCommentIds,
@@ -274,9 +280,28 @@ function ReviewContent({
     () => commentHolders(threads, glow.glowingIds),
     [threads, glow.glowingIds],
   );
+  const pendingThreadIds = useMemo(
+    () =>
+      new Set(
+        Object.entries(replyDrafts)
+          .filter(([, draft]) => hasText(draft.body))
+          .map(([id]) => id),
+      ),
+    [replyDrafts],
+  );
+  const pendingCount = commentDrafts.length + pendingThreadIds.size;
+  const [pendingOnlyChosen, setPendingOnly] = useState(false);
+  // Nothing left to post, as after a submit, shows everything again.
+  const pendingOnly = pendingOnlyChosen && pendingCount > 0;
+  const shownThreads = useMemo(
+    () => (pendingOnly ? onlyThreads(threads, pendingThreadIds) : threads),
+    [pendingOnly, threads, pendingThreadIds],
+  );
+  // A pending reply on a resolved thread still shows while only pending comments show.
+  const showsResolved = showResolved || pendingOnly;
   const visible = useMemo(
-    () => visibleThreads(threads, showResolved, newCommentHolders.threadIds),
-    [threads, showResolved, newCommentHolders],
+    () => visibleThreads(shownThreads, showsResolved, newCommentHolders.threadIds),
+    [shownThreads, showsResolved, newCommentHolders],
   );
   const placedByPath = useMemo(
     () => groupByPath(visible.placed, ({ thread }) => thread.path),
@@ -295,13 +320,13 @@ function ReviewContent({
     () =>
       commentStops({
         files,
-        threads,
+        threads: shownThreads,
         olderDrafts: draftsByCommit.older,
         drafts: draftsByCommit.atHead,
-        showResolved,
+        showResolved: showsResolved,
         revealedThreadIds: newCommentHolders.threadIds,
       }),
-    [files, threads, draftsByCommit, showResolved, newCommentHolders],
+    [files, shownThreads, draftsByCommit, showsResolved, newCommentHolders],
   );
   const content = useRef<HTMLDivElement>(null);
   const navigation = useCommentNavigation(scrollArea, content, stops);
@@ -313,6 +338,19 @@ function ReviewContent({
     commentStep.onHandled();
   }, [commentStep, step]);
   const jumpToFirstThread = navigation.jumpToFirstThread;
+  const jumpToStart = navigation.jumpToStart;
+  // Runs after the render that applied the filter, so it jumps within the filtered stops.
+  const [startJump, setStartJump] = useState(0);
+  const handledStartJump = useRef(0);
+  useEffect(() => {
+    if (startJump === handledStartJump.current) return;
+    handledStartJump.current = startJump;
+    jumpToStart();
+  }, [startJump, jumpToStart]);
+  const togglePendingOnly = (on: boolean) => {
+    setPendingOnly(on);
+    if (on) setStartJump((count) => count + 1);
+  };
   useEffect(() => {
     if (jump === null) return;
     const targets = threadsWithComments(threads, jump.commentIds);
@@ -337,6 +375,13 @@ function ReviewContent({
         )}
         <CountPill emphasis={counts.open > 0}>{counts.open} open</CountPill>
         <CountPill emphasis={false}>{counts.outdated} outdated</CountPill>
+        {pendingCount > 0 && (
+          <PendingToggle
+            count={pendingCount}
+            pressed={pendingOnly}
+            toggle={() => togglePendingOnly(!pendingOnly)}
+          />
+        )}
         <ViewerReviewBadge review={head.viewerReview} headOid={head.oid} />
         <CommentStepper navigation={navigation} />
         <div className="ml-auto flex items-center gap-2">
@@ -364,6 +409,7 @@ function ReviewContent({
         commentDrafts={commentDrafts}
         summaryDraft={summaryDraft}
         onWritten={reload}
+        onShowComments={() => togglePendingOnly(true)}
       />
       {createError !== null && <ErrorBanner>{createError}</ErrorBanner>}
       {viewed.error !== null && <ErrorBanner>{viewed.error}</ErrorBanner>}
@@ -473,6 +519,39 @@ function CountPill({ emphasis, children }: { emphasis: boolean; children: ReactN
     >
       {children}
     </span>
+  );
+}
+
+function PendingToggle({
+  count,
+  pressed,
+  toggle,
+}: {
+  count: number;
+  pressed: boolean;
+  toggle: () => void;
+}) {
+  const label = pressed
+    ? "Show everyone's comments again"
+    : "Show only the comments you haven't posted yet, from you or the agent";
+  return (
+    <IconTooltip label={label}>
+      <button
+        type="button"
+        aria-pressed={pressed}
+        className={cn(
+          "inline-flex h-5 items-center gap-1 rounded-full border px-2 tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          pressed
+            ? "border-amber-500/60 bg-amber-500/15 font-medium text-foreground"
+            : "border-amber-500/40 text-foreground hover:bg-amber-500/10",
+        )}
+        onClick={toggle}
+      >
+        <Icon name="MessageSquare" className="size-3" />
+        {count} pending
+        {pressed && <Icon name="X" className="-mr-0.5 size-3 opacity-60" />}
+      </button>
+    </IconTooltip>
   );
 }
 

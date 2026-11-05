@@ -58,7 +58,7 @@ describe("authenticated bounded video host", () => {
           "api",
           "repos/private-owner/private-fork/contents/videos/a%20b%23%3F.mp4?ref=1111111111111111111111111111111111111111",
           "-H",
-          "Accept: application/vnd.github.raw+json",
+          "Accept: application/vnd.github.raw",
         ],
         { signal, encoding: "buffer", maxBuffer: 8388608, timeout: 20_000 },
       ],

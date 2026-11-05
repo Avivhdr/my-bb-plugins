@@ -34,6 +34,8 @@ const linkedQueuePrSchema = queueRowSchema.extend({
   /** The label that keeps this PR out of the counts, e.g. "DO NOT REVIEW". */
   skipLabel: z.string().nullable().default(null),
   ignored: z.boolean().default(false),
+  /** Auto-review starts a thread for this PR when a slot frees up. */
+  autoQueued: z.boolean().default(false),
 });
 export type LinkedQueuePr = z.infer<typeof linkedQueuePrSchema>;
 

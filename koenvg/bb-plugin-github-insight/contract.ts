@@ -6,6 +6,7 @@ import {
   imageResultSchema,
 } from "./core/image-content";
 import { imageRepoSchema, prImageRefsSchema, prImageBasisSchema } from "./core/pr-image-basis";
+import { repoImageRequestSchema } from "./core/repo-image-url";
 export const prImageRequestSchema = imageRepoSchema
   .extend({ sha: imageShaSchema, path: imagePathSchema })
   .strict();
@@ -175,6 +176,7 @@ export type AddPullRequestReviewRequest = z.infer<typeof addPullRequestReviewReq
 export const hostContract = defineRpcContract({
   readPrVideo: { input: prImageRequestSchema, output: videoResultSchema },
   readPrImage: { input: prImageRequestSchema, output: imageResultSchema },
+  readRepoImage: { input: repoImageRequestSchema, output: imageResultSchema },
   fetchImageMergeBase: { input: prImageRefsSchema, output: ghResultSchema },
   fetchOverviewPage: {
     input: prPageRequestSchema,
@@ -514,6 +516,12 @@ const setReviewInstructionsRequestSchema = z
   })
   .strict();
 
+/** Starts review threads for Direct and Teammates PRs, at most `maxRunning` working at once. */
+export const autoReviewSettingsSchema = z
+  .object({ enabled: z.boolean(), maxRunning: z.number().int().min(1).max(10) })
+  .strict();
+export type AutoReviewSettings = z.infer<typeof autoReviewSettingsSchema>;
+
 const markNeedsReviewRequestSchema = prRefRequestSchema;
 export type MarkNeedsReviewRequest = z.infer<typeof markNeedsReviewRequestSchema>;
 
@@ -628,6 +636,12 @@ export const rpcContract = defineRpcContract({
     input: getReviewInstructionsRequestSchema,
     output: reviewInstructionsSchema,
   },
+  getRepoImage: {
+    input: z.object({ url: z.string().min(1).max(4096) }).strict(),
+    output: imageResultSchema,
+  },
+  getAutoReview: { input: z.object({}).strict(), output: autoReviewSettingsSchema },
+  setAutoReview: { input: autoReviewSettingsSchema, output: actionResultSchema },
   getActivity: { input: z.object({}).strict(), output: activityResultSchema },
   refreshActivity: { input: z.object({}).strict(), output: loadedActivitySchema },
   markActivityRead: {

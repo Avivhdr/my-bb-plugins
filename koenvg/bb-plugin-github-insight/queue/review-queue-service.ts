@@ -2,6 +2,7 @@ import type { NewThreadRequest, PluginKvStorage } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type {
   ActionResult,
+  AutoReviewSettings,
   MarkNeedsReviewRequest,
   MarkQueueSeenRequest,
   MarkReviewedRequest,
@@ -22,7 +23,7 @@ import {
   type ReviewLayer,
 } from "../core/review-filters";
 import { readReviewPr, type ReviewPr } from "../core/review-pr";
-import { buildReReviewPrompt } from "../core/review-prompt";
+import { buildReReviewPrompt, buildReviewPrompt } from "../core/review-prompt";
 import {
   CLOSED_PR_WINDOW_MS,
   parseGithubRepo,
@@ -48,6 +49,14 @@ import {
 import { reviewState } from "../core/review-state";
 import type { ViewerTeam } from "../core/teams";
 import type { PrResolution } from "../pr-lookup";
+import {
+  autoReviewRequest,
+  createAutoReviewSettings,
+  createAutoStarted,
+  isAutoReviewCandidate,
+  isBusy,
+  type ReviewThreadRequest,
+} from "./auto-review";
 import { createIgnoredPrs } from "./ignored-prs";
 import { isSharedEnvironment } from "./review-environment";
 import { createReReviews, type SentReReview } from "./re-reviews";
@@ -98,11 +107,13 @@ export interface ReviewQueueServiceDeps {
   listThreads(): Promise<QueueThread[]>;
   listReviewThreads(): Promise<QueueThread[]>;
   readPluginMetadata(threadId: string): Promise<unknown>;
-  spawnReviewThread(pr: ReviewPr, request: NewThreadRequest): Promise<string>;
+  spawnReviewThread(pr: ReviewPr, request: ReviewThreadRequest): Promise<string>;
   archiveThread(threadId: string): Promise<void>;
   sendMessage(threadId: string, text: string): Promise<unknown>;
   /** The "How to review" text of the re-review prompt, from the plugin settings. */
   reReviewInstructions(): Promise<string>;
+  /** The editable part of the review prompt, from the plugin settings. */
+  reviewInstructions(): Promise<string>;
   resolveEnvironmentPr(environmentId: string): Promise<PrResolution>;
   kv: Pick<PluginKvStorage, "get" | "set" | "delete" | "list">;
   publish(result: LoadedReviewQueue): void;
@@ -122,6 +133,7 @@ interface LinkedView {
     seenKeys: string[];
     ignoredKeys: string[];
     expiredMarks: PullRequestRef[];
+    autoStartedKeys: string[];
   };
 }
 
@@ -335,6 +347,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   const filtersStore = createReviewFiltersStore(deps.kv);
   const ignoredPrs = createIgnoredPrs(deps.kv);
   const reReviews = createReReviews(deps.kv, deps.now);
+  const autoReview = createAutoReviewSettings(deps.kv);
+  const autoStarted = createAutoStarted(deps.kv);
   let running: Promise<LoadedReviewQueue> | null = null;
   let queued: Promise<LoadedReviewQueue> | null = null;
 
@@ -429,6 +443,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       filters,
       ignored,
       sentReReviews,
+      autoSettings,
+      started,
     ] = await Promise.all([
       projectIdsByRepo(),
       loadingLive,
@@ -441,6 +457,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       filtersStore.read(),
       ignoredPrs.list(),
       reReviews.list(),
+      autoReview.get(),
+      autoStarted.list(),
     ]);
     const marksByPr = new Map(marked.map((mark) => [refKey(mark.ref), mark]));
     const reReviewsByPr = new Map(sentReReviews.map((sent) => [refKey(sent.ref), sent]));
@@ -475,23 +493,24 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       }
       const seenComments = seenByPr.get(key) ?? new Set<string>();
       const thread = linkThread(threads.get(key));
-      return [
-        {
-          ...row,
-          layer,
-          projectIds: projectIds.get(row.repo.toLowerCase()) ?? [],
-          review: reviewState(mark?.headOid ?? null, row.headOid),
-          newActivity:
-            mark === undefined ? [] : newActivitySince(row.activity, mark.markedAt, seenComments),
-          thread,
-          reReview:
-            mark !== undefined &&
-            thread?.isReviewThread === true &&
-            reReviewDue(row, mark, reReviewsByPr.get(key), seenComments),
-          skipLabel: skipLabelOf(row.labels, filters.skipLabels),
-          ignored: row.state === "open" && ignored.has(key),
-        },
-      ];
+      const pr: LinkedQueuePr = {
+        ...row,
+        layer,
+        projectIds: projectIds.get(row.repo.toLowerCase()) ?? [],
+        review: reviewState(mark?.headOid ?? null, row.headOid),
+        newActivity:
+          mark === undefined ? [] : newActivitySince(row.activity, mark.markedAt, seenComments),
+        thread,
+        reReview:
+          mark !== undefined &&
+          thread?.isReviewThread === true &&
+          reReviewDue(row, mark, reReviewsByPr.get(key), seenComments),
+        skipLabel: skipLabelOf(row.labels, filters.skipLabels),
+        ignored: row.state === "open" && ignored.has(key),
+        autoQueued: false,
+      };
+      pr.autoQueued = autoSettings.enabled && !started.has(key) && isAutoReviewCandidate(pr);
+      return [pr];
     });
     const merged = linked.filter((pr) => pr.state !== "open");
     const open = linked.filter((pr) => pr.state === "open" && !pr.ignored);
@@ -530,6 +549,9 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         ignoredKeys:
           truncatedLayers.size > 0 ? [] : [...ignored].filter((key) => !rowKeys.has(key)),
         expiredMarks,
+        // A PR that left every list has closed or no longer asks for you; it never starts again.
+        autoStartedKeys:
+          truncatedLayers.size > 0 ? [] : [...started].filter((key) => !rowKeys.has(key)),
       },
     };
   }
@@ -569,11 +591,13 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     seenKeys,
     ignoredKeys,
     expiredMarks,
+    autoStartedKeys,
   }: LinkedView["stale"]): Promise<void> {
     await Promise.all([
       deleteEach(returnedThreadIds, returnedThreads.delete, (id) => `returned thread ${id}`),
       deleteEach(expiredMarks, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`),
       deleteEach(expiredMarks, reReviews.delete, (ref) => `the re-review of ${refKey(ref)}`),
+      deleteEach(autoStartedKeys, autoStarted.delete, (key) => `the auto-review of ${key}`),
       seenKeys.length === 0
         ? undefined
         : seenPrs
@@ -649,6 +673,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     await store(result).catch((error) =>
       deps.warn(`Review queue store failed: ${errorText(error)}`),
     );
+    if (result.kind === "ok") void autoStart();
     return result;
   }
 
@@ -695,7 +720,89 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       await store(current.kind === "ok" ? { kind: "ok", ...next } : { ...current, lastGood: next });
     } catch (error) {
       deps.warn(`Review queue update failed: ${errorText(error)}`);
+      return;
     }
+    // A stopped or archived thread frees a slot; a shown repo or unmarked PR may queue one.
+    void autoStart();
+  }
+
+  let autoStarting: Promise<void> = Promise.resolve();
+
+  /** Starts review threads for queued PRs, oldest first, while fewer than the limit work. */
+  function autoStart(): Promise<void> {
+    autoStarting = autoStarting.then(autoStartOnce);
+    return autoStarting;
+  }
+
+  async function autoStartOnce(): Promise<void> {
+    try {
+      const settings = await autoReview.get();
+      if (!settings.enabled) return;
+      const stored = await readStored();
+      const view = stored && viewOf(stored);
+      if (view === null) return;
+      const queuedPrs = viewPrs(view)
+        .filter((pr) => pr.autoQueued)
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      if (queuedPrs.length === 0) return;
+      const [threads, started, hostId] = await Promise.all([
+        liveReviewThreads(),
+        autoStarted.list(),
+        deps.primaryHostId(),
+      ]);
+      if (hostId === null) return;
+      let free = settings.maxRunning - threads.filter(isBusy).length;
+      if (free <= 0) return;
+      // A Start review click may have spawned a thread the stored view does not link yet.
+      const [reviews, instructions] = await Promise.all([
+        startedReviews(threads),
+        deps.reviewInstructions(),
+      ]);
+      const reviewed = new Set(reviews.map(({ pr }) => prKey(pr.repo, pr.number)));
+      let spawned = false;
+      for (const pr of queuedPrs) {
+        if (free <= 0) break;
+        const key = prKey(pr.repo, pr.number);
+        if (started.has(key) || reviewed.has(key)) continue;
+        const { repo, number, title, url } = pr;
+        const reviewPr = { repo, number, title, url };
+        let threadId: string;
+        try {
+          threadId = await deps.spawnReviewThread(
+            reviewPr,
+            autoReviewRequest(pr.projectIds[0]!, hostId, buildReviewPrompt(reviewPr, instructions)),
+          );
+        } catch (error) {
+          deps.warn(`Could not auto-review ${key}: ${errorText(error)}`);
+          continue;
+        }
+        free -= 1;
+        spawned = true;
+        await autoStarted
+          .add(key, threadId)
+          .catch((error) =>
+            deps.warn(`Could not record the auto-review of ${key}: ${errorText(error)}`),
+          );
+      }
+      if (spawned) void relink();
+    } catch (error) {
+      deps.warn(`Auto-review failed: ${errorText(error)}`);
+    }
+  }
+
+  async function getAutoReview(): Promise<AutoReviewSettings> {
+    return autoReview.get();
+  }
+
+  async function setAutoReview(settings: AutoReviewSettings): Promise<ActionResult> {
+    try {
+      await autoReview.save(settings);
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    // The re-link marks the queued PRs and then starts the first ones.
+    await relink();
+    return { kind: "ok" };
   }
 
   async function startReview(pr: ReviewPr, request: NewThreadRequest): Promise<string> {
@@ -963,6 +1070,10 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     unignorePr: (request: PrRefRequest) => setIgnored(request, false),
     getViewerTeams,
     setTeammatesTeam,
+    getAutoReview,
+    setAutoReview,
+    /** Resolves when the auto-review passes started so far are done. For tests. */
+    autoReviewSettled: () => autoStarting,
     run,
   };
 }

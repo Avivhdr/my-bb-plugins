@@ -43,11 +43,36 @@ describe("authenticated bounded image host", () => {
           "api",
           "repos/private-owner/private-repo/contents/images/a%20b%23%3F.png?ref=1111111111111111111111111111111111111111",
           "-H",
-          "Accept: application/vnd.github.raw+json",
+          "Accept: application/vnd.github.raw",
         ],
         { signal, encoding: "buffer", maxBuffer: 4194304, timeout: 20000 },
       ],
     ]);
+  });
+  it("reads a linked repo image at a branch ref the same way", async () => {
+    state.calls = [];
+    state.error = null;
+    const signal = new AbortController().signal;
+    const linked = { owner: "acme", repo: "api", ref: "main", path: "docs/shot.png" };
+    expect(await host.handlers.readRepoImage(linked, { signal } as never)).toMatchObject({
+      kind: "ready",
+      mime: "image/png",
+    });
+    expect(state.calls[0]![1]).toEqual([
+      "api",
+      "repos/acme/api/contents/docs/shot.png?ref=main",
+      "-H",
+      "Accept: application/vnd.github.raw",
+    ]);
+  });
+  it("says a linked repo image is missing on a 404", async () => {
+    state.calls = [];
+    state.error = { stderr: "gh: Not Found (HTTP 404)" };
+    const linked = { owner: "acme", repo: "api", ref: "main", path: "gone.png" };
+    expect(
+      await host.handlers.readRepoImage(linked, { signal: new AbortController().signal } as never),
+    ).toMatchObject({ kind: "error", code: "missing" });
+    state.error = null;
   });
   it("rejects repository and path traversal before starting gh", async () => {
     state.calls = [];

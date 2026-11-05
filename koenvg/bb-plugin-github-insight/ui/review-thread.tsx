@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
-import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
+import { UrlLink } from "@get-bb/plugin-sdk/app";
+import { GithubMarkdown } from "./github-markdown";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "../core/relative-time";
@@ -139,9 +140,10 @@ function CommentView({ comment, trailing }: { comment: ReviewComment; trailing: 
         </UrlLink>
         {trailing !== null && <div className="ml-auto shrink-0">{trailing}</div>}
       </div>
-      <div className="pl-7 leading-relaxed [&_pre]:overflow-x-auto">
-        <Markdown content={comment.body} />
-      </div>
+      <GithubMarkdown
+        className="pl-7 leading-relaxed [&_pre]:overflow-x-auto"
+        content={comment.body}
+      />
     </div>
   );
 }

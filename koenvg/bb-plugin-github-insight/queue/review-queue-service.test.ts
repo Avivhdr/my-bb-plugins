@@ -159,6 +159,7 @@ function serviceWith(overrides: Partial<ReviewQueueServiceDeps> = {}) {
     },
     sendMessage: async () => "sent",
     reReviewInstructions: async () => "Look for bugs.",
+    reviewInstructions: async () => "Check everything.",
     resolveEnvironmentPr: async () => ({ kind: "no_pr" }),
     kv,
     publish: (result) => published.push(result),
@@ -2354,5 +2355,249 @@ describe("teammates", () => {
       "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs",
       "is:pr is:open draft:false archived:false review-requested:@me -user-review-requested:@me -repo:acme/docs -repo:acme/web",
     ]);
+  });
+});
+
+describe("auto-review", () => {
+  const API_PROJECT = project("prj_api", "https://github.com/acme/api.git", 1);
+
+  /** Review threads that the fake spawn adds, with their PR metadata. */
+  function autoReviewWith(prs: QueuePr[], overrides: Partial<ReviewQueueServiceDeps> = {}) {
+    const reviewThreads: QueueThread[] = [];
+    const metadata: Record<string, unknown> = {};
+    const spawned: { pr: { repo: string; number: number }; request: unknown }[] = [];
+    let fetched = queueOf(prs);
+    const setup = serviceWith({
+      fetchReviewQueue: async () => fetched,
+      listProjects: async () => [API_PROJECT],
+      listReviewThreads: async () => reviewThreads,
+      readPluginMetadata: metadataOf(metadata),
+      spawnReviewThread: async (pr, request) => {
+        const id = `thr_${pr.number}`;
+        spawned.push({ pr, request });
+        reviewThreads.push(reviewThread(id, { status: "starting" }));
+        metadata[id] = reviewPrEntry(pr.repo, pr.number);
+        return id;
+      },
+      ...overrides,
+    });
+    async function settle() {
+      for (let pass = 0; pass < 6; pass += 1) {
+        await setup.service.autoReviewSettled();
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }
+    return {
+      ...setup,
+      reviewThreads,
+      metadata,
+      spawned,
+      settle,
+      setFetched: (next: FetchedQueue) => (fetched = next),
+      spawnedNumbers: () => spawned.map(({ pr }) => pr.number),
+    };
+  }
+
+  /** Oldest first: PR 1 is the oldest. */
+  function directPrs(count: number): QueuePr[] {
+    return Array.from({ length: count }, (_, index) =>
+      queuePr("acme/api", index + 1, { createdAt: `2026-09-0${index + 1}T10:00:00Z` }),
+    );
+  }
+
+  async function queuedNumbers(service: ReturnType<typeof serviceWith>["service"]) {
+    const stored = (await service.getReviewQueue()) as LoadedReviewQueue;
+    return allPrs(stored)
+      .filter((pr) => pr.autoQueued)
+      .map((pr) => pr.number)
+      .sort((a, b) => a - b);
+  }
+
+  it("is off by default: nothing starts and nothing is queued", async () => {
+    const { service, settle, spawned } = autoReviewWith(directPrs(2));
+
+    await service.refreshReviewQueue();
+    await settle();
+
+    expect(await service.getAutoReview()).toEqual({ enabled: false, maxRunning: 3 });
+    expect(spawned).toEqual([]);
+    expect(await queuedNumbers(service)).toEqual([]);
+  });
+
+  it("starts the oldest PRs up to the limit when turned on and queues the rest", async () => {
+    const { service, settle, spawned, spawnedNumbers } = autoReviewWith(directPrs(5));
+    await service.refreshReviewQueue();
+
+    expect(await service.setAutoReview({ enabled: true, maxRunning: 3 })).toEqual({ kind: "ok" });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([1, 2, 3]);
+    expect(spawned[0]!.request).toEqual({
+      projectId: "prj_api",
+      environment: {
+        type: "host",
+        hostId: "host-1",
+        workspace: { type: "managed-worktree", baseBranch: { kind: "default" } },
+      },
+      input: [{ type: "text", text: expect.any(String), mentions: [] }],
+    });
+    const prompt = (spawned[0]!.request as NewThreadRequest).input[0] as { text: string };
+    expect(prompt.text).toContain("Review pull request #1: PR 1");
+    expect(prompt.text).toContain("Check everything.");
+    expect(await queuedNumbers(service)).toEqual([4, 5]);
+  });
+
+  it("counts working review threads, also manual ones, but not one that waits for you", async () => {
+    const { service, settle, reviewThreads, metadata, spawnedNumbers } = autoReviewWith(
+      directPrs(3),
+    );
+    reviewThreads.push(
+      reviewThread("thr_manual", { status: "active" }),
+      reviewThread("thr_asking", { status: "active", hasPendingInteraction: true }),
+      reviewThread("thr_done", { status: "idle" }),
+    );
+    metadata.thr_manual = reviewPrEntry("acme/web", 7);
+    metadata.thr_asking = reviewPrEntry("acme/web", 8);
+    metadata.thr_done = reviewPrEntry("acme/web", 9);
+    await service.refreshReviewQueue();
+
+    await service.setAutoReview({ enabled: true, maxRunning: 2 });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([1]);
+  });
+
+  it("starts the next queued PR when a review thread stops", async () => {
+    const { service, settle, reviewThreads, spawnedNumbers } = autoReviewWith(directPrs(3));
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: true, maxRunning: 1 });
+    await settle();
+    expect(spawnedNumbers()).toEqual([1]);
+
+    reviewThreads[0]!.status = "idle";
+    await service.threadStopped("thr_1");
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([1, 2]);
+  });
+
+  it("starts a PR once, also after its thread is archived", async () => {
+    const { service, settle, reviewThreads, spawnedNumbers } = autoReviewWith(directPrs(1));
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: true, maxRunning: 3 });
+    await settle();
+    expect(spawnedNumbers()).toEqual([1]);
+
+    reviewThreads[0]!.archivedAt = 2;
+    await service.refreshReviewQueue();
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([1]);
+    expect(await queuedNumbers(service)).toEqual([]);
+  });
+
+  it("leaves out Team PRs, skipped, ignored, reviewed, and project-less PRs, and PRs with a thread", async () => {
+    const prs = [
+      queuePr("acme/api", 21, { labels: ["DO NOT REVIEW"] }),
+      queuePr("acme/api", 22),
+      queuePr("acme/api", 23),
+      queuePr("acme/other", 24),
+      queuePr("acme/api", 25),
+      queuePr("acme/api", 26),
+    ];
+    const { service, settle, kv, setFetched, spawnedNumbers } = autoReviewWith([], {
+      listThreads: async () => [thread("thr_branch", "env_25", 1)],
+      resolveEnvironmentPr: async () => linkedTo("acme", "api", 25),
+    });
+    setFetched(queueOf(prs, [], [], [queuePr("acme/api", 20)]));
+    kv.entries.set(...mark("acme/api", 23, "head-23"));
+    await service.ignorePr({ repo: "acme/api", number: 22 });
+    await service.refreshReviewQueue();
+
+    await service.setAutoReview({ enabled: true, maxRunning: 10 });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([26]);
+  });
+
+  it("starts Teammates PRs", async () => {
+    const { service, settle, setFetched, spawnedNumbers } = autoReviewWith([], {
+      fetchTeamMembers: async () => ["octocat"],
+    });
+    setFetched(queueOf([], [], [], [queuePr("acme/api", 30)]));
+    await service.setTeammatesTeam({ team: "acme/core" });
+    await service.refreshReviewQueue();
+
+    await service.setAutoReview({ enabled: true, maxRunning: 3 });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([30]);
+  });
+
+  it("does not start a PR that already has a review thread", async () => {
+    const { service, settle, spawnedNumbers, reviewThreads, metadata } = autoReviewWith(
+      directPrs(1),
+    );
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: false, maxRunning: 3 });
+    // Started by hand: the thread links the PR, so auto-review leaves it alone.
+    reviewThreads.push(reviewThread("thr_by_hand", { status: "active" }));
+    metadata.thr_by_hand = reviewPrEntry("acme/api", 1);
+    await service.setAutoReview({ enabled: true, maxRunning: 3 });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([]);
+  });
+
+  it("tries a failed start again on the next pass without recording it", async () => {
+    let fail = true;
+    const warnings: string[] = [];
+    const started: number[] = [];
+    const { service, settle } = autoReviewWith(directPrs(1), {
+      spawnReviewThread: async (pr) => {
+        if (fail) throw new Error("project not found");
+        started.push(pr.number);
+        return "thr_1";
+      },
+      warn: (message) => warnings.push(message),
+    });
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: true, maxRunning: 3 });
+    await settle();
+    expect(warnings).toContain("Could not auto-review acme/api#1: project not found");
+
+    fail = false;
+    await service.refreshReviewQueue();
+    await settle();
+
+    expect(started).toEqual([1]);
+  });
+
+  it("stops queueing when turned off", async () => {
+    const { service, settle, spawnedNumbers } = autoReviewWith(directPrs(3));
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: true, maxRunning: 1 });
+    await settle();
+
+    await service.setAutoReview({ enabled: false, maxRunning: 1 });
+    await settle();
+
+    expect(spawnedNumbers()).toEqual([1]);
+    expect(await queuedNumbers(service)).toEqual([]);
+  });
+
+  it("forgets a started PR once it leaves every list", async () => {
+    const { service, settle, kv, setFetched, reviewThreads } = autoReviewWith(directPrs(1));
+    await service.refreshReviewQueue();
+    await service.setAutoReview({ enabled: true, maxRunning: 3 });
+    await settle();
+    expect(kv.entries.has("auto-review-started:acme/api#1")).toBe(true);
+
+    reviewThreads[0]!.archivedAt = 2;
+    setFetched(queueOf([]));
+    await service.refreshReviewQueue();
+    await settle();
+
+    expect(kv.entries.has("auto-review-started:acme/api#1")).toBe(false);
   });
 });

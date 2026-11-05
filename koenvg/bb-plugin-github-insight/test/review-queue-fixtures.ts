@@ -13,7 +13,9 @@ import type {
   LoadedActivity,
   ReviewInstructions,
   ViewerTeamsResult,
+  AutoReviewSettings,
 } from "../contract";
+import type { ImageWireResult } from "../core/image-content";
 import { DEFAULT_REVIEW_INSTRUCTIONS } from "../core/review-prompt";
 
 export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
@@ -45,6 +47,7 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     reReview: false,
     skipLabel: null,
     ignored: false,
+    autoQueued: false,
     ...overrides,
   };
 }
@@ -150,6 +153,9 @@ export interface PanelRpc {
   setTeammatesTeam: () => ActionResult | Promise<ActionResult>;
   getReviewInstructions: () => ReviewInstructions | Promise<ReviewInstructions>;
   setReviewInstructions: () => ActionResult | Promise<ActionResult>;
+  getAutoReview: () => AutoReviewSettings | Promise<AutoReviewSettings>;
+  getRepoImage: () => ImageWireResult | Promise<ImageWireResult>;
+  setAutoReview: () => ActionResult | Promise<ActionResult>;
   getActivity: () => ActivityResult | Promise<ActivityResult>;
   refreshActivity: () => LoadedActivity | Promise<LoadedActivity>;
   markActivityRead: () => ActionResult | Promise<ActionResult>;
@@ -187,6 +193,9 @@ export function panelRpc(getReviewQueue: QueueHandler, rpc: Partial<PanelRpc> = 
     setTeammatesTeam: () => ({ kind: "ok" as const }),
     getReviewInstructions: () => ({ instructions: DEFAULT_REVIEW_INSTRUCTIONS, isDefault: true }),
     setReviewInstructions: () => ({ kind: "ok" as const }),
+    getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
+    getRepoImage: () => ({ kind: "absent" as const }),
+    setAutoReview: () => ({ kind: "ok" as const }),
     getActivity: () => ({ kind: "loading" as const }),
     refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
     markActivityRead: () => ({ kind: "ok" as const }),

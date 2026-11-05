@@ -347,6 +347,22 @@ describe("Pull Requests card actions", () => {
     ]);
   });
 
+  it("shows Queued in place of Start review for a PR auto-review will start, and still opens the composer", async () => {
+    const slot = renderPanel("", () => ok(view([queuePr({ autoQueued: true })])));
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).queryByRole("button", { name: "Start review" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Queued" }));
+
+    expect(slot.inspection.navigateCalls).toEqual([
+      {
+        method: "toPluginPanel",
+        path: "pull-requests",
+        options: { subPath: "review/acme/api/15" },
+      },
+    ]);
+  });
+
   it("shows the no project hint once on the group header and no Start review on its cards", async () => {
     const slot = renderPanel("", () =>
       ok(view([queuePr({ projectIds: [] }), queuePr({ number: 12, projectIds: [] })])),
@@ -1220,9 +1236,17 @@ describe("Re-review", () => {
     expect(within(card).queryByTestId("review-status")).toBeNull();
   });
 
+  it("shows Re-review when the agent came back and the thread was not opened", async () => {
+    const slot = renderPanel("", () =>
+      ok(view([{ ...changed, thread: { ...idleReview, returned: "finished" } }])),
+    );
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).getByRole("button", { name: "Re-review" })).toBeTruthy();
+  });
+
   it.each([
     ["the agent runs", { thread: reviewThread }],
-    ["the agent came back and was not opened", { thread: { ...idleReview, returned: "finished" } }],
     ["nothing changed since the last re-review", { reReview: false }],
     [
       "the thread is not a review thread",
@@ -1296,7 +1320,7 @@ describe("Thread on the PR row", () => {
   it.each([
     ["running", "Running"],
     ["needs_you", "Needs you"],
-    ["idle", "Waiting"],
+    ["idle", "Ready"],
     ["error", "Failed"],
   ] as const)("shows thread status %s", async (status, text) => {
     const slot = renderPanel("", () =>
@@ -1410,13 +1434,13 @@ describe("returned review threads on cards", () => {
     expect(within(card).getByTestId("review-status").textContent).toBe(text);
   });
 
-  it("shows an opened idle thread with the plain status", async () => {
+  it("shows an opened idle thread as Ready too", async () => {
     const slot = renderPanel("", () =>
       ok(view([queuePr({ thread: { ...reviewThread, status: "idle" } })])),
     );
 
     const card = await findCard(slot, "Direct", "acme/api#15");
-    expect(within(card).getByTestId("review-status").textContent).toBe("Waiting");
+    expect(within(card).getByTestId("review-status").textContent).toBe("Ready");
   });
 });
 
@@ -1443,7 +1467,7 @@ describe("agent status filter", () => {
       .map((card) => card.getAttribute("aria-label"));
   }
 
-  it("counts active agent states above the layers and skips idle threads", async () => {
+  it("counts agent states above the layers, with idle threads under Ready", async () => {
     const slot = renderPanel("", agentQueue);
 
     await slot.findByRole("region", { name: "Direct" });
@@ -1452,7 +1476,7 @@ describe("agent status filter", () => {
       within(filter)
         .getAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["Running 2", "Needs you 1"]);
+    ).toEqual(["Running 2", "Needs you 1", "Ready 1"]);
   });
 
   it("counts returned and errored threads under the same labels their rows show", async () => {
@@ -1490,10 +1514,8 @@ describe("agent status filter", () => {
     expect(slot.queryByRole("group", { name: "Filter by agent status" })).toBeNull();
   });
 
-  it("shows no filter when no agent is active", async () => {
-    const slot = renderPanel("", () =>
-      ok(view([queuePr({ thread: idle }), queuePr({ number: 2 })])),
-    );
+  it("shows no filter when no PR has a thread", async () => {
+    const slot = renderPanel("", () => ok(view([queuePr({ number: 1 }), queuePr({ number: 2 })])));
 
     await slot.findByRole("region", { name: "Direct" });
     expect(slot.queryByRole("group", { name: "Filter by agent status" })).toBeNull();
@@ -1857,6 +1879,63 @@ describe("review prompt settings", () => {
   });
 });
 
+describe("auto-review settings", () => {
+  const section = app.settingsSections.find((registration) => registration.id === "auto-review")!;
+
+  function renderSettings(rpc: Partial<PanelRpc> = {}) {
+    return renderSlot<Record<string, never>, typeof rpcContract>(
+      section,
+      {},
+      { rpc: panelRpc(() => ok(view([])), rpc) },
+    );
+  }
+
+  it("turns auto-review on with the saved limit", async () => {
+    const slot = renderSettings({ getAutoReview: () => ({ enabled: false, maxRunning: 4 }) });
+
+    const toggle = (await slot.findByRole("checkbox", {
+      name: "Start reviews on their own for Direct and Teammates PRs",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+
+    await vi.waitFor(() =>
+      expect(
+        slot.inspection.rpcCalls.find((call) => call.method === "setAutoReview")?.input,
+      ).toEqual({ enabled: true, maxRunning: 4 }),
+    );
+    expect(toggle.checked).toBe(true);
+  });
+
+  it("saves a new limit", async () => {
+    const slot = renderSettings({ getAutoReview: () => ({ enabled: true, maxRunning: 3 }) });
+
+    const limit = await slot.findByRole("combobox", {
+      name: "Review threads working at once, at most",
+    });
+    fireEvent.change(limit, { target: { value: "2" } });
+
+    await vi.waitFor(() =>
+      expect(
+        slot.inspection.rpcCalls.find((call) => call.method === "setAutoReview")?.input,
+      ).toEqual({ enabled: true, maxRunning: 2 }),
+    );
+  });
+
+  it("puts the toggle back and says why when saving fails", async () => {
+    const slot = renderSettings({
+      getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
+      setAutoReview: () => ({ kind: "error" as const, message: "kv down" }),
+    });
+
+    const toggle = (await slot.findByRole("checkbox")) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    await slot.findByText("Could not save: kv down");
+    expect(toggle.checked).toBe(false);
+  });
+});
+
 describe("re-review prompt settings", () => {
   const section = app.settingsSections.find(
     (registration) => registration.id === "re-review-prompt",
@@ -1873,6 +1952,7 @@ describe("re-review prompt settings", () => {
   it("registers a Re-review prompt section after the Review prompt one", () => {
     expect(section).toMatchObject({ title: "Re-review prompt" });
     expect(app.settingsSections.map((registration) => registration.id)).toEqual([
+      "auto-review",
       "review-prompt",
       "re-review-prompt",
     ]);

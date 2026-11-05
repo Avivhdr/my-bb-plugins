@@ -1,4 +1,5 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
+import { AutoReviewSettings } from "./ui/auto-review-settings";
 import { GITHUB_COMMANDS } from "./ui/commands";
 import { ComposerBanner } from "./ui/composer-banner";
 import { hideHostPrStrip } from "./ui/hide-host-pr-strip";
@@ -19,6 +20,13 @@ export default definePluginApp((app) => {
     experimental_sidebarAccessory: PrSidebarBadge,
   });
   app.slots.experimental_appOverlay({ id: "pr-rail-badge", component: PrRailBadge });
+  app.slots.settingsSection({
+    id: "auto-review",
+    title: "Auto-review",
+    description:
+      "Starts a review thread for each new Direct and Teammates review request, a few at a time, so the drafts are ready when you open the Pull Requests panel.",
+    component: AutoReviewSettings,
+  });
   app.slots.settingsSection({
     id: "review-prompt",
     title: "Review prompt",

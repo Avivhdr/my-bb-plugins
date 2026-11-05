@@ -1,5 +1,5 @@
 import { readPrVideo } from "./github/pr-video-content";
-import { imageMergeBaseArgs, readPrImage } from "./github/pr-image-content";
+import { imageMergeBaseArgs, readPrImage, readRepoImage } from "./github/pr-image-content";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
@@ -45,6 +45,7 @@ export default experimental_defineHostEntry({
   handlers: {
     readPrVideo: (request, context) => readPrVideo(request, context.signal),
     readPrImage: (request, context) => readPrImage(request, context.signal),
+    readRepoImage: (request, context) => readRepoImage(request, context.signal),
     fetchImageMergeBase: (request, context) =>
       runGhJson(imageMergeBaseArgs(request), context.signal),
     fetchOverviewPage: (request, context) => runGhJson(overviewPageArgs(request), context.signal),

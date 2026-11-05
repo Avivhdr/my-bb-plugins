@@ -50,6 +50,8 @@ interface SubmitPanelProps {
   commentDrafts: readonly ListedCommentDraft[];
   summaryDraft: SummaryDraft | null;
   onWritten: () => void;
+  /** Shows only the pending comments in the Files sub-tab and jumps to the first one. */
+  onShowComments?: () => void;
 }
 
 export function SubmitPanel({
@@ -59,6 +61,7 @@ export function SubmitPanel({
   commentDrafts,
   summaryDraft,
   onWritten,
+  onShowComments,
 }: SubmitPanelProps) {
   const rpc = useRpc<typeof rpcContract>();
   const headingId = useId();
@@ -129,9 +132,20 @@ export function SubmitPanel({
                 Summary from agent
               </span>
             )}
-            <span className="ml-auto text-muted-foreground tabular-nums">
-              {commentsText(commentCount)}
-            </span>
+            {commentCount > 0 && onShowComments !== undefined ? (
+              <button
+                type="button"
+                title="Show only these comments in the diff"
+                className="ml-auto rounded-sm text-muted-foreground tabular-nums underline decoration-dotted underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                onClick={onShowComments}
+              >
+                {commentsText(commentCount)}
+              </button>
+            ) : (
+              <span className="ml-auto text-muted-foreground tabular-nums">
+                {commentsText(commentCount)}
+              </span>
+            )}
           </div>
           <textarea
             aria-label="Summary"

@@ -9,6 +9,7 @@ import {
   type ImageWireResult,
 } from "../core/image-content";
 import { prImageRefsSchema, type PrImageRefs } from "../core/pr-image-basis";
+import { repoImageRequestSchema, type RepoImageRequest } from "../core/repo-image-url";
 
 const run = promisify(execFile);
 export function imageMergeBaseArgs(value: PrImageRefs): string[] {
@@ -21,19 +22,35 @@ export function imageMergeBaseArgs(value: PrImageRefs): string[] {
 }
 export function prImageArgs(value: z.infer<typeof prImageRequestSchema>): string[] {
   const { owner, repo, sha, path } = prImageRequestSchema.parse(value);
+  return contentsArgs({ owner, repo, ref: sha, path });
+}
+export function repoImageArgs(value: RepoImageRequest): string[] {
+  return contentsArgs(repoImageRequestSchema.parse(value));
+}
+function contentsArgs({ owner, repo, ref, path }: RepoImageRequest): string[] {
   return [
     "api",
-    `repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(sha)}`,
+    `repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`,
     "-H",
-    "Accept: application/vnd.github.raw+json",
+    "Accept: application/vnd.github.raw",
   ];
 }
-export async function readPrImage(
+export function readPrImage(
   value: z.infer<typeof prImageRequestSchema>,
   signal: AbortSignal,
 ): Promise<ImageWireResult> {
+  return readImage(() => prImageArgs(value), signal);
+}
+/** An image file linked from a PR description or comment. */
+export function readRepoImage(
+  value: RepoImageRequest,
+  signal: AbortSignal,
+): Promise<ImageWireResult> {
+  return readImage(() => repoImageArgs(value), signal);
+}
+async function readImage(args: () => string[], signal: AbortSignal): Promise<ImageWireResult> {
   try {
-    const { stdout } = await run("gh", prImageArgs(value), {
+    const { stdout } = await run("gh", args(), {
       signal,
       encoding: "buffer",
       maxBuffer: MAX_IMAGE_BYTES,

@@ -270,6 +270,9 @@ function renderTabFor(threadId: string, handlers: RpcHandlers, ...results: Revie
         setTeammatesTeam: () => ({ kind: "error", message: "unused" }),
         getReviewInstructions: () => ({ instructions: "unused", isDefault: true }),
         setReviewInstructions: () => ({ kind: "error", message: "unused" }),
+        getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
+        getRepoImage: () => ({ kind: "absent" as const }),
+        setAutoReview: () => ({ kind: "error", message: "unused" }),
         getActivity: () => ({ kind: "loading" as const }),
         refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
         markActivityRead: () => ({ kind: "error" as const, message: "unused" }),
@@ -2627,6 +2630,75 @@ describe("Files tab comment navigation", () => {
     const slot = await renderNavigation(standard);
 
     expect(slot.stepper().getByText("1 / 3")).toBeTruthy();
+  });
+
+  describe("pending only", () => {
+    const withPending: ReviewResult = {
+      ...(review(
+        [
+          reviewThread("t1", "a.ts", 2),
+          reviewThread("t2", "b.ts", 1),
+          reviewThread("t3", "c.ts", 1, true),
+        ],
+        [commentDraft("d1", { path: "a.ts", line: 3, body: "Rename this" })],
+      ) as Extract<ReviewResult, { kind: "ok" }>),
+      drafts: { t3: { body: "Fixed in abc", updatedAt: 1, source: "agent" } },
+    };
+
+    const threadIds = (area: HTMLElement) =>
+      Array.from(area.querySelectorAll<HTMLElement>("[data-review-thread-id]")).map(
+        (card) => card.dataset.reviewThreadId,
+      );
+
+    it("counts comment drafts and unposted replies in a pending pill", async () => {
+      const slot = await renderNavigation(withPending);
+
+      const pill = slot.getByRole("button", { name: /2 pending/ });
+      expect(pill.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("hides other threads, keeps a resolved thread with a pending reply, and steps through pending only", async () => {
+      const slot = await renderNavigation(withPending);
+      await slot.findAllByTestId("file-diff");
+      expect(slot.stepper().getByText("1 / 3")).toBeTruthy();
+
+      fireEvent.click(slot.getByRole("button", { name: /2 pending/ }));
+
+      await vi.waitFor(() => expect(threadIds(slot.area)).toEqual(["t3"]));
+      expect(slot.area.querySelector('[data-comment-draft-id="d1"]')).not.toBeNull();
+      expect(slot.getByRole("button", { name: /2 pending/ }).getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(slot.stepper().getByText(/\/ 2$/)).toBeTruthy();
+    });
+
+    it("shows every thread again on a second click", async () => {
+      const slot = await renderNavigation(withPending);
+      await slot.findAllByTestId("file-diff");
+      const pill = slot.getByRole("button", { name: /2 pending/ });
+
+      fireEvent.click(pill);
+      await vi.waitFor(() => expect(threadIds(slot.area)).toEqual(["t3"]));
+      fireEvent.click(pill);
+
+      await vi.waitFor(() => expect(threadIds(slot.area)).toEqual(["t1", "t2"]));
+      expect(slot.stepper().getByText(/\/ 3$/)).toBeTruthy();
+    });
+
+    it("has no pill when nothing waits to be posted", async () => {
+      const slot = await renderNavigation(review([reviewThread("t1", "a.ts", 2)]));
+
+      expect(slot.queryByRole("button", { name: /pending/ })).toBeNull();
+    });
+
+    it("shows only pending comments from the comment count of the submit panel", async () => {
+      const slot = await renderNavigation(withPending);
+      await slot.findAllByTestId("file-diff");
+
+      fireEvent.click(slot.getByRole("button", { name: "1 comment" }));
+
+      await vi.waitFor(() => expect(threadIds(slot.area)).toEqual(["t3"]));
+    });
   });
 
   it("has no stepper when there are no comments", async () => {

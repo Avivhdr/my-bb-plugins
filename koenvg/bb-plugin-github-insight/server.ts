@@ -17,6 +17,8 @@ import {
 } from "./core/review-updated";
 import { newCommentDraftId } from "./core/review-drafts";
 import { createMediaSigner } from "./core/signed-media";
+import { imageError } from "./core/image-content";
+import { parseRepoImageUrl } from "./core/repo-image-url";
 import { reviewPrMetadata } from "./core/review-pr";
 import { SUMMARY_METADATA_KEY } from "./core/summary";
 import { GhFailureError } from "./github/gh-failure";
@@ -225,6 +227,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     sendMessage: sendToThread,
     reReviewInstructions: async () => (await reReviewInstructions.get()).instructions,
+    reviewInstructions: async () => (await reviewInstructions.get()).instructions,
     resolveEnvironmentPr,
     kv: bb.storage.kv,
     publish: (result) => bb.realtime.publish(REVIEW_QUEUE_UPDATED_CHANNEL, result),
@@ -285,6 +288,15 @@ export default async function plugin(bb: BbPluginApi) {
       review.getPrVideo(threadId, expectedBasisKey, path, side),
     getPrImage: ({ threadId, expectedBasisKey, path, side }) =>
       review.getPrImage(threadId, expectedBasisKey, path, side),
+    getRepoImage: async ({ url }) => {
+      const request = parseRepoImageUrl(url);
+      if (request === null) return imageError("unsupported", "Not an image file in a GitHub repo");
+      const hostId = await primaryHostId();
+      if (hostId === null) return imageError("read", "No host to read GitHub from");
+      return host
+        .call("readRepoImage", request, { hostId })
+        .catch(() => imageError("read", "Could not read the image from GitHub"));
+    },
     getInsight: ({ threadId }) => service.getInsight(threadId),
     refresh: ({ threadId }) => service.refresh(threadId),
     getPrInsight: (ref) => service.getPrInsight(ref),
@@ -324,6 +336,8 @@ export default async function plugin(bb: BbPluginApi) {
     getViewerTeams: () => reviewQueue.getViewerTeams(),
     setTeammatesTeam: (request) => reviewQueue.setTeammatesTeam(request),
     getReviewInstructions: ({ prompt }) => instructionsStore(prompt).get(),
+    getAutoReview: () => reviewQueue.getAutoReview(),
+    setAutoReview: (settings) => reviewQueue.setAutoReview(settings),
     getActivity: () => activity.getActivity(),
     refreshActivity: () => activity.refreshActivity(),
     markActivityRead: ({ ids }) => activity.markRead(ids),

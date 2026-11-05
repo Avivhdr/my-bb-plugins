@@ -80,11 +80,10 @@ function attentionLabels(pr: LinkedQueuePr): { text: string; icon: IconName }[] 
 const NEUTRAL_PILL_TONE =
   "review-agent-orbit review-agent-idle text-muted-foreground hover:bg-state-hover hover:text-foreground";
 
-const ACTIVE_AGENT_STATES = ["running", "needs_you", "finished", "failed"] as const;
+const AGENT_STATES = ["running", "needs_you", "finished", "failed"] as const;
 
-type ActiveAgentState = (typeof ACTIVE_AGENT_STATES)[number];
-
-type AgentState = ActiveAgentState | "idle";
+/** An idle agent shows as finished ("Ready"), whether or not you opened its thread. */
+type AgentState = (typeof AGENT_STATES)[number];
 
 const AGENT: Record<AgentState, { label: string; dotClass: string; toneClass: string }> = {
   running: {
@@ -111,17 +110,12 @@ const AGENT: Record<AgentState, { label: string; dotClass: string; toneClass: st
     toneClass:
       "review-agent-orbit review-agent-failed bg-destructive/5 text-destructive hover:bg-destructive/10",
   },
-  idle: {
-    label: "Waiting",
-    dotClass: "bg-muted-foreground/60",
-    toneClass: NEUTRAL_PILL_TONE,
-  },
 };
 
 const THREAD_STATUS_STATE: Record<ReviewThreadStatus, AgentState> = {
   running: "running",
   needs_you: "needs_you",
-  idle: "idle",
+  idle: "finished",
   error: "failed",
 };
 
@@ -181,7 +175,7 @@ export function ReviewQueueLists({
   const [archived, setArchived] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
-  const [agentFilter, setAgentFilter] = useState<ActiveAgentState | null>(null);
+  const [agentFilter, setAgentFilter] = useState<AgentState | null>(null);
 
   useEffect(() => {
     setArchived(new Set());
@@ -577,10 +571,10 @@ function AgentFilter({
   onChange,
 }: {
   section: QueueSection;
-  active: ActiveAgentState | null;
-  onChange(state: ActiveAgentState | null): void;
+  active: AgentState | null;
+  onChange(state: AgentState | null): void;
 }) {
-  const shown = ACTIVE_AGENT_STATES.map((state) => ({
+  const shown = AGENT_STATES.map((state) => ({
     state,
     count: countOf(onlyAgentState(section, state)),
   })).filter(({ state, count }) => count > 0 || state === active);
@@ -850,7 +844,7 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
   const archiveThreadId = thread?.isReviewThread ? thread.id : null;
   // Re-review takes the place of an idle agent's status; "Open thread" moves to the menu.
   const reReviewThread =
-    thread?.isReviewThread === true && pr.reReview && agentStateOf(thread) === "idle"
+    thread?.isReviewThread === true && pr.reReview && agentStateOf(thread) === "finished"
       ? thread
       : null;
   return (
@@ -871,7 +865,17 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
           onClick={() => navigation.toThread(thread.id)}
         />
       ) : (
-        pr.projectIds.length > 0 && (
+        pr.projectIds.length > 0 &&
+        (pr.autoQueued ? (
+          <PillButton
+            toneClass={NEUTRAL_PILL_TONE}
+            leading={<Icon name="Clock" className="size-3.5 shrink-0" />}
+            title="Auto-review starts this one when a review slot frees up. Click to start it yourself now."
+            onClick={() => navigation.go({ kind: "review", repo: pr.repo, number: pr.number })}
+          >
+            Queued
+          </PillButton>
+        ) : (
           <PillButton
             toneClass={NEUTRAL_PILL_TONE}
             leading={<Icon name="MessageSquarePlus" className="size-3.5 shrink-0" />}
@@ -879,7 +883,7 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
           >
             Start review
           </PillButton>
-        )
+        ))
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

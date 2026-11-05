@@ -15,6 +15,8 @@ export interface CommentNavigation {
   jumpMark: JumpMark | null;
   step(direction: StepDirection): void;
   jumpToFirstThread(threadIds: ReadonlySet<string>): void;
+  /** Jumps to the first comment, when there is one. */
+  jumpToStart(): void;
 }
 
 interface Pin {
@@ -107,12 +109,17 @@ export function useCommentNavigation(
     [stops, jumpTo],
   );
 
+  const jumpToStart = useCallback(() => {
+    if (stops.length > 0) jumpTo(0);
+  }, [stops, jumpTo]);
+
   return {
     position: stops.length === 0 ? null : Math.min(current, stops.length - 1),
     total: stops.length,
     jumpMark,
     step,
     jumpToFirstThread,
+    jumpToStart,
   };
 }
 
