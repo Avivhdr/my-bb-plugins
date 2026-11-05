@@ -24,7 +24,7 @@ export default definePluginApp((app) => {
     id: "auto-review",
     title: "Auto-review",
     description:
-      "Starts a review thread for each new Direct and Teammates review request, a few at a time, so the drafts are ready when you open the Pull Requests panel.",
+      "Starts a review thread for each new Direct and Teammates review request, and sends Re-review when your review is requested again, a few at a time, so the drafts are ready when you open the Pull Requests panel.",
     component: AutoReviewSettings,
   });
   app.slots.settingsSection({

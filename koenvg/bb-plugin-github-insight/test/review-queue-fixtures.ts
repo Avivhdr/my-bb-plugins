@@ -48,6 +48,7 @@ export function queuePr(overrides: Partial<LinkedQueuePr> = {}): LinkedQueuePr {
     skipLabel: null,
     ignored: false,
     autoQueued: false,
+    autoReReview: false,
     ...overrides,
   };
 }

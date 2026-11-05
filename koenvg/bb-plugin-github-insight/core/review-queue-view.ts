@@ -36,6 +36,8 @@ const linkedQueuePrSchema = queueRowSchema.extend({
   ignored: z.boolean().default(false),
   /** Auto-review starts a thread for this PR when a slot frees up. */
   autoQueued: z.boolean().default(false),
+  /** Auto-review sends Re-review to this PR's review thread when a slot frees up. */
+  autoReReview: z.boolean().default(false),
 });
 export type LinkedQueuePr = z.infer<typeof linkedQueuePrSchema>;
 

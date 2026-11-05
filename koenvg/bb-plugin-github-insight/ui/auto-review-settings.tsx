@@ -64,7 +64,7 @@ export function AutoReviewSettings() {
           aria-hidden
           className="relative h-4 w-7 shrink-0 rounded-full bg-muted-foreground/25 transition-colors duration-200 after:absolute after:left-0.5 after:top-0.5 after:size-3 after:rounded-full after:bg-background after:shadow-[0_1px_2px_rgb(0_0_0/0.2)] after:transition-transform after:duration-200 after:ease-out peer-checked:bg-primary peer-checked:after:translate-x-3 peer-focus-visible:ring-2 peer-focus-visible:ring-ring/50"
         />
-        Start reviews on their own for Direct and Teammates PRs
+        Start reviews and re-reviews on their own for Direct and Teammates PRs
       </label>
       <div className="flex items-center gap-2">
         <label htmlFor={limitId}>Review threads working at once, at most</label>
@@ -86,6 +86,11 @@ export function AutoReviewSettings() {
         Each PR starts once, oldest first, in a new worktree with the review prompt below. Review
         threads you start yourself count toward the limit. A thread that waits for your answer does
         not. Skipped, ignored, and reviewed PRs and PRs that already have a thread stay out.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        When the author requests your review again on a PR you marked reviewed, auto-review sends
+        Re-review to its idle review thread, once per request. Re-reviews go before new reviews and
+        take a slot too.
       </p>
       {status.kind === "error" && (
         <p role="alert" className="text-xs text-destructive">

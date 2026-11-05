@@ -53,6 +53,7 @@ import {
   autoReviewRequest,
   createAutoReviewSettings,
   createAutoStarted,
+  isAutoReReviewCandidate,
   isAutoReviewCandidate,
   isBusy,
   type ReviewThreadRequest,
@@ -508,8 +509,13 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         skipLabel: skipLabelOf(row.labels, filters.skipLabels),
         ignored: row.state === "open" && ignored.has(key),
         autoQueued: false,
+        autoReReview: false,
       };
       pr.autoQueued = autoSettings.enabled && !started.has(key) && isAutoReviewCandidate(pr);
+      if (autoSettings.enabled && mark !== undefined) {
+        const sentAt = reReviewsByPr.get(key)?.sentAt ?? 0;
+        pr.autoReReview = isAutoReReviewCandidate(pr, Math.max(mark.markedAt, sentAt));
+      }
       return [pr];
     });
     const merged = linked.filter((pr) => pr.state !== "open");
@@ -728,7 +734,10 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
 
   let autoStarting: Promise<void> = Promise.resolve();
 
-  /** Starts review threads for queued PRs, oldest first, while fewer than the limit work. */
+  /**
+   * Sends due re-reviews, then starts review threads for queued PRs, oldest first, while fewer
+   * than the limit work.
+   */
   function autoStart(): Promise<void> {
     autoStarting = autoStarting.then(autoStartOnce);
     return autoStarting;
@@ -741,53 +750,98 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       const stored = await readStored();
       const view = stored && viewOf(stored);
       if (view === null) return;
-      const queuedPrs = viewPrs(view)
-        .filter((pr) => pr.autoQueued)
-        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-      if (queuedPrs.length === 0) return;
-      const [threads, started, hostId] = await Promise.all([
-        liveReviewThreads(),
-        autoStarted.list(),
-        deps.primaryHostId(),
-      ]);
-      if (hostId === null) return;
+      const byAge = (a: LinkedQueuePr, b: LinkedQueuePr) =>
+        Date.parse(a.createdAt) - Date.parse(b.createdAt);
+      const prs = viewPrs(view);
+      const reReviewPrs = prs.filter((pr) => pr.autoReReview).sort(byAge);
+      const queuedPrs = prs.filter((pr) => pr.autoQueued).sort(byAge);
+      if (reReviewPrs.length === 0 && queuedPrs.length === 0) return;
+      const threads = await liveReviewThreads();
       let free = settings.maxRunning - threads.filter(isBusy).length;
       if (free <= 0) return;
-      // A Start review click may have spawned a thread the stored view does not link yet.
-      const [reviews, instructions] = await Promise.all([
-        startedReviews(threads),
-        deps.reviewInstructions(),
-      ]);
-      const reviewed = new Set(reviews.map(({ pr }) => prKey(pr.repo, pr.number)));
-      let spawned = false;
-      for (const pr of queuedPrs) {
-        if (free <= 0) break;
-        const key = prKey(pr.repo, pr.number);
-        if (started.has(key) || reviewed.has(key)) continue;
-        const { repo, number, title, url } = pr;
-        const reviewPr = { repo, number, title, url };
-        let threadId: string;
-        try {
-          threadId = await deps.spawnReviewThread(
-            reviewPr,
-            autoReviewRequest(pr.projectIds[0]!, hostId, buildReviewPrompt(reviewPr, instructions)),
-          );
-        } catch (error) {
-          deps.warn(`Could not auto-review ${key}: ${errorText(error)}`);
-          continue;
-        }
-        free -= 1;
-        spawned = true;
-        await autoStarted
-          .add(key, threadId)
-          .catch((error) =>
-            deps.warn(`Could not record the auto-review of ${key}: ${errorText(error)}`),
-          );
-      }
-      if (spawned) void relink();
+      // Re-reviews go first: the author asked again, and the thread already has the context.
+      const sent = await autoReReview(reReviewPrs, threads, free);
+      free -= sent;
+      const spawned =
+        free > 0 && queuedPrs.length > 0 ? await autoSpawn(queuedPrs, threads, free) : 0;
+      if (sent + spawned > 0) void relink();
     } catch (error) {
       deps.warn(`Auto-review failed: ${errorText(error)}`);
     }
+  }
+
+  /** Sends Re-review to up to `free` idle review threads. Returns how many it sent. */
+  async function autoReReview(
+    prs: LinkedQueuePr[],
+    threads: QueueThread[],
+    free: number,
+  ): Promise<number> {
+    if (prs.length === 0) return 0;
+    const byId = new Map(threads.map((thread) => [thread.id, thread]));
+    // A Re-review click may have sent one the stored view does not show yet.
+    const lastSent = new Map((await reReviews.list()).map((entry) => [refKey(entry.ref), entry]));
+    let sent = 0;
+    for (const pr of prs) {
+      if (sent >= free) break;
+      const key = prKey(pr.repo, pr.number);
+      const thread = pr.thread === null ? undefined : byId.get(pr.thread.id);
+      if (thread === undefined || threadStatus(thread) !== "idle") continue;
+      const requestedAt = Date.parse(pr.activity?.lastRequestedAt ?? "");
+      if ((lastSent.get(key)?.sentAt ?? 0) >= requestedAt) continue;
+      const result = await sendReReview({
+        threadId: thread.id,
+        repo: pr.repo,
+        number: pr.number,
+        headOid: pr.headOid,
+      });
+      if (result.kind === "error") {
+        deps.warn(`Could not auto re-review ${key}: ${result.message}`);
+        continue;
+      }
+      sent += 1;
+    }
+    return sent;
+  }
+
+  /** Starts review threads for up to `free` queued PRs. Returns how many it started. */
+  async function autoSpawn(
+    queuedPrs: LinkedQueuePr[],
+    threads: QueueThread[],
+    free: number,
+  ): Promise<number> {
+    const [started, hostId] = await Promise.all([autoStarted.list(), deps.primaryHostId()]);
+    if (hostId === null) return 0;
+    // A Start review click may have spawned a thread the stored view does not link yet.
+    const [reviews, instructions] = await Promise.all([
+      startedReviews(threads),
+      deps.reviewInstructions(),
+    ]);
+    const reviewed = new Set(reviews.map(({ pr }) => prKey(pr.repo, pr.number)));
+    let spawned = 0;
+    for (const pr of queuedPrs) {
+      if (spawned >= free) break;
+      const key = prKey(pr.repo, pr.number);
+      if (started.has(key) || reviewed.has(key)) continue;
+      const { repo, number, title, url } = pr;
+      const reviewPr = { repo, number, title, url };
+      let threadId: string;
+      try {
+        threadId = await deps.spawnReviewThread(
+          reviewPr,
+          autoReviewRequest(pr.projectIds[0]!, hostId, buildReviewPrompt(reviewPr, instructions)),
+        );
+      } catch (error) {
+        deps.warn(`Could not auto-review ${key}: ${errorText(error)}`);
+        continue;
+      }
+      spawned += 1;
+      await autoStarted
+        .add(key, threadId)
+        .catch((error) =>
+          deps.warn(`Could not record the auto-review of ${key}: ${errorText(error)}`),
+        );
+    }
+    return spawned;
   }
 
   async function getAutoReview(): Promise<AutoReviewSettings> {
@@ -880,7 +934,13 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   }
 
   /** Sends the re-review prompt to the PR's review thread, comparing with the reviewed mark. */
-  async function reReview({
+  async function reReview(request: ReReviewRequest): Promise<ActionResult> {
+    const result = await sendReReview(request);
+    if (result.kind === "ok") await relink();
+    return result;
+  }
+
+  async function sendReReview({
     threadId,
     repo,
     number,
@@ -910,7 +970,6 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       .catch((error) =>
         deps.warn(`Could not record the re-review of ${refKey(ref)}: ${errorText(error)}`),
       );
-    await relink();
     return { kind: "ok" };
   }
 

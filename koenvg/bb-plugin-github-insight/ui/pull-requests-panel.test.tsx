@@ -1283,6 +1283,21 @@ describe("Re-review", () => {
     expect(button.hasAttribute("disabled")).toBe(false);
   });
 
+  it("shows Queued in place of Re-review for an auto re-review, and still sends it on click", async () => {
+    const slot = renderPanel("", () => ok(view([{ ...changed, autoReReview: true }])), {
+      reReview: () => ({ kind: "ok" }),
+    });
+
+    const card = await findCard(slot, "Direct", "acme/api#15");
+    expect(within(card).queryByRole("button", { name: "Re-review" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Queued" }));
+
+    await vi.waitFor(() =>
+      expect(slot.inspection.rpcCalls.some(({ method }) => method === "reReview")).toBe(true),
+    );
+    expect(slot.inspection.navigateCalls).toEqual([]);
+  });
+
   it("shows the error when the re-review could not be sent", async () => {
     const slot = renderPanel("", () => ok(view([changed])), {
       reReview: () => ({ kind: "error", message: "Thread is gone" }),
@@ -1894,7 +1909,7 @@ describe("auto-review settings", () => {
     const slot = renderSettings({ getAutoReview: () => ({ enabled: false, maxRunning: 4 }) });
 
     const toggle = (await slot.findByRole("checkbox", {
-      name: "Start reviews on their own for Direct and Teammates PRs",
+      name: "Start reviews and re-reviews on their own for Direct and Teammates PRs",
     })) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     fireEvent.click(toggle);

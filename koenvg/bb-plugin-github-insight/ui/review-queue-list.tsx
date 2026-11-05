@@ -852,12 +852,21 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
       {reReviewThread !== null ? (
         <PillButton
           toneClass={NEUTRAL_PILL_TONE}
-          leading={<Icon name="ArrowReloadHorizontal" className="size-3.5 shrink-0" />}
-          title="Send the new commits and replies to the review agent"
+          leading={
+            <Icon
+              name={pr.autoReReview ? "Clock" : "ArrowReloadHorizontal"}
+              className="size-3.5 shrink-0"
+            />
+          }
+          title={
+            pr.autoReReview
+              ? "Your review was requested again. Auto-review sends the re-review when a review slot frees up. Click to send it now."
+              : "Send the new commits and replies to the review agent"
+          }
           disabled={busy}
           onClick={() => actions.reReview(pr, reReviewThread.id)}
         >
-          Re-review
+          {pr.autoReReview ? "Queued" : "Re-review"}
         </PillButton>
       ) : thread !== null ? (
         <ThreadStatusButton

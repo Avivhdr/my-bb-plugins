@@ -2586,6 +2586,162 @@ describe("auto-review", () => {
     expect(await queuedNumbers(service)).toEqual([]);
   });
 
+  describe("re-review requests", () => {
+    const MARKED_AT = Date.parse("2026-10-07T08:30:00Z");
+    const REQUESTED_AT = "2026-10-07T09:00:00Z";
+    const NOW = Date.parse("2026-10-07T10:00:00Z");
+
+    /** PR 15, marked reviewed at `abc123`, with an idle review thread and a new head. */
+    function reRequested(lastRequestedAt: string | null, overrides: Partial<QueuePr> = {}) {
+      const sent: { threadId: string; text: string }[] = [];
+      const pr = queuePr("acme/api", 15, {
+        headOid: "def456",
+        activity: { conversationComments: [], inlineComments: [], lastRequestedAt },
+        ...overrides,
+      });
+      const setup = autoReviewWith([], {
+        now: () => NOW,
+        sendMessage: async (threadId, text) => {
+          sent.push({ threadId, text });
+          const thread = setup.reviewThreads.find(({ id }) => id === threadId);
+          if (thread) thread.status = "active";
+          return "sent";
+        },
+      });
+      // Activity comes from the tracked fetch of a marked PR.
+      setup.setFetched(queueOf([pr], [pr]));
+      setup.reviewThreads.push(reviewThread("thr_review", { status: "idle" }));
+      setup.metadata.thr_review = reviewPrEntry("acme/api", 15);
+      setup.kv.entries.set(...mark("acme/api", 15, "abc123", MARKED_AT));
+      return { ...setup, sent };
+    }
+
+    it("sends Re-review to the idle review thread when your review is requested again", async () => {
+      const { service, settle, sent, spawnedNumbers } = reRequested(REQUESTED_AT);
+      await service.refreshReviewQueue();
+
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+
+      expect(sent.map(({ threadId }) => threadId)).toEqual(["thr_review"]);
+      expect(sent[0]!.text).toContain("abc123");
+      expect(spawnedNumbers()).toEqual([]);
+    });
+
+    it("marks the PR for an automatic re-review while it waits for a slot", async () => {
+      const { service, settle, sent, reviewThreads, metadata } = reRequested(REQUESTED_AT);
+      reviewThreads.push(reviewThread("thr_other", { status: "active" }));
+      metadata.thr_other = reviewPrEntry("acme/web", 7);
+      await service.refreshReviewQueue();
+
+      await service.setAutoReview({ enabled: true, maxRunning: 1 });
+      await settle();
+
+      expect(sent).toEqual([]);
+      const pr = allPrs((await service.getReviewQueue()) as LoadedReviewQueue).find(
+        ({ number }) => number === 15,
+      );
+      expect(pr?.autoReReview).toBe(true);
+
+      reviewThreads[1]!.status = "idle";
+      await service.threadStopped("thr_other");
+      await settle();
+
+      expect(sent).toHaveLength(1);
+      const after = allPrs((await service.getReviewQueue()) as LoadedReviewQueue).find(
+        ({ number }) => number === 15,
+      );
+      expect(after?.autoReReview).toBe(false);
+    });
+
+    it("sends once per request, also after the thread is idle again", async () => {
+      const { service, settle, sent, reviewThreads } = reRequested(REQUESTED_AT);
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+
+      reviewThreads[0]!.status = "idle";
+      await service.threadStopped("thr_review");
+      await service.refreshReviewQueue();
+      await settle();
+
+      expect(sent).toHaveLength(1);
+    });
+
+    it("does not send for new commits alone, without a new request", async () => {
+      const { service, settle, sent } = reRequested(null);
+      await service.refreshReviewQueue();
+
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+
+      expect(sent).toEqual([]);
+    });
+
+    it("does not send for a request from before the mark", async () => {
+      const { service, settle, sent } = reRequested("2026-10-07T08:00:00Z");
+      await service.refreshReviewQueue();
+
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+
+      expect(sent).toEqual([]);
+    });
+
+    it("waits while the review thread works", async () => {
+      const { service, settle, sent, reviewThreads } = reRequested(REQUESTED_AT);
+      reviewThreads[0]!.status = "active";
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+      expect(sent).toEqual([]);
+
+      reviewThreads[0]!.status = "idle";
+      await service.threadStopped("thr_review");
+      await settle();
+
+      expect(sent).toHaveLength(1);
+    });
+
+    it("leaves a skipped PR alone and does nothing while off", async () => {
+      const skipped = reRequested(REQUESTED_AT, { labels: ["DO NOT REVIEW"] });
+      await skipped.service.refreshReviewQueue();
+      await skipped.service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await skipped.settle();
+      expect(skipped.sent).toEqual([]);
+
+      const off = reRequested(REQUESTED_AT);
+      await off.service.refreshReviewQueue();
+      await off.settle();
+      expect(off.sent).toEqual([]);
+    });
+
+    it("sends the re-review before starting new reviews, within the limit", async () => {
+      const { service, settle, sent, setFetched, spawnedNumbers } = reRequested(REQUESTED_AT);
+      const pr15 = queuePr("acme/api", 15, {
+        headOid: "def456",
+        activity: { conversationComments: [], inlineComments: [], lastRequestedAt: REQUESTED_AT },
+      });
+      setFetched(
+        queueOf(
+          [
+            pr15,
+            queuePr("acme/api", 1, { createdAt: "2026-09-01T10:00:00Z" }),
+            queuePr("acme/api", 2, { createdAt: "2026-09-02T10:00:00Z" }),
+          ],
+          [pr15],
+        ),
+      );
+      await service.refreshReviewQueue();
+
+      await service.setAutoReview({ enabled: true, maxRunning: 2 });
+      await settle();
+
+      expect(sent).toHaveLength(1);
+      expect(spawnedNumbers()).toEqual([1]);
+    });
+  });
+
   it("forgets a started PR once it leaves every list", async () => {
     const { service, settle, kv, setFetched, reviewThreads } = autoReviewWith(directPrs(1));
     await service.refreshReviewQueue();

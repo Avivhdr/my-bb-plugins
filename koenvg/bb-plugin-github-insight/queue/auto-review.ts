@@ -67,6 +67,27 @@ export function isAutoReviewCandidate(pr: LinkedQueuePr): boolean {
   );
 }
 
+/**
+ * Whether auto-review would send Re-review to this PR's idle review thread: the same layers and
+ * filters as a first review, Re-review is due, and your review was requested again after
+ * `since`, the later of the reviewed mark and the last re-review.
+ */
+export function isAutoReReviewCandidate(pr: LinkedQueuePr, since: number): boolean {
+  const requestedAt = pr.activity?.lastRequestedAt ?? null;
+  return (
+    pr.layer !== null &&
+    AUTO_REVIEW_LAYERS.has(pr.layer) &&
+    pr.state === "open" &&
+    !pr.ignored &&
+    pr.skipLabel === null &&
+    pr.reReview &&
+    pr.thread?.isReviewThread === true &&
+    pr.thread.status === "idle" &&
+    requestedAt !== null &&
+    Date.parse(requestedAt) > since
+  );
+}
+
 interface BusyThread {
   status: string;
   hasPendingInteraction: boolean;
