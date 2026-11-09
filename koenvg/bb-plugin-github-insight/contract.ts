@@ -642,6 +642,10 @@ export const rpcContract = defineRpcContract({
   },
   getAutoReview: { input: z.object({}).strict(), output: autoReviewSettingsSchema },
   setAutoReview: { input: autoReviewSettingsSchema, output: actionResultSchema },
+  setWorkingToday: {
+    input: z.object({ working: z.boolean() }).strict(),
+    output: actionResultSchema,
+  },
   getActivity: { input: z.object({}).strict(), output: activityResultSchema },
   refreshActivity: { input: z.object({}).strict(), output: loadedActivitySchema },
   markActivityRead: {

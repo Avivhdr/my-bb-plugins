@@ -338,6 +338,7 @@ export default async function plugin(bb: BbPluginApi) {
     getReviewInstructions: ({ prompt }) => instructionsStore(prompt).get(),
     getAutoReview: () => reviewQueue.getAutoReview(),
     setAutoReview: (settings) => reviewQueue.setAutoReview(settings),
+    setWorkingToday: ({ working }) => reviewQueue.setWorkingToday(working),
     getActivity: () => activity.getActivity(),
     refreshActivity: () => activity.refreshActivity(),
     markActivityRead: ({ ids }) => activity.markRead(ids),

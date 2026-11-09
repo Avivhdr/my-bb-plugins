@@ -45,6 +45,14 @@ export function isReviewed(pr: LinkedQueuePr): boolean {
   return pr.review === "reviewed" && pr.newActivity.length === 0;
 }
 
+/**
+ * Whether the row offers Re-review in place of the finished review: the PR changed since that
+ * review, so the review is out of date and does not count as ready.
+ */
+export function offersReReview(pr: LinkedQueuePr): boolean {
+  return pr.reReview && pr.thread?.isReviewThread === true && pr.thread.status === "idle";
+}
+
 const queueSectionSchema = z.array(
   z.object({ repo: z.string(), prs: z.array(linkedQueuePrSchema) }),
 );
@@ -76,6 +84,10 @@ export const reviewQueueViewSchema = z.object({
   loadedAt: z.number(),
   hasUnseen: z.boolean().default(false),
   hasReturned: z.boolean().default(false),
+  /** Auto-review is switched on in the plugin settings. */
+  autoReviewOn: z.boolean().default(false),
+  /** The local day, `YYYY-MM-DD`, that "Working today" was switched on, or null. */
+  workingDay: z.string().nullable().default(null),
 });
 export type ReviewQueueView = z.infer<typeof reviewQueueViewSchema>;
 

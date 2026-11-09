@@ -47,17 +47,20 @@ import {
   type ReviewThreadStatus,
 } from "../core/review-queue-view";
 import { reviewState } from "../core/review-state";
+import { isWorkingDay, localDay } from "../core/working-day";
 import type { ViewerTeam } from "../core/teams";
 import type { PrResolution } from "../pr-lookup";
 import {
   autoReviewRequest,
   createAutoReviewSettings,
   createAutoStarted,
+  createWorkingDay,
   isAutoReReviewCandidate,
   isAutoReviewCandidate,
   isBusy,
   type ReviewThreadRequest,
 } from "./auto-review";
+import { createHeadsSeen, type SeenHead } from "./heads-seen";
 import { createIgnoredPrs } from "./ignored-prs";
 import { isSharedEnvironment } from "./review-environment";
 import { createReReviews, type SentReReview } from "./re-reviews";
@@ -135,6 +138,10 @@ interface LinkedView {
     ignoredKeys: string[];
     expiredMarks: PullRequestRef[];
     autoStartedKeys: string[];
+    /** Heads of reviewed PRs seen for the first time, to record. */
+    newHeads: [string, SeenHead][];
+    /** Recorded heads of PRs with no reviewed mark anymore. */
+    headSeenKeys: string[];
   };
 }
 
@@ -298,12 +305,10 @@ function needsYou(pr: LinkedQueuePr): boolean {
   return pr.thread?.status === "needs_you" || pr.thread?.returned != null;
 }
 
-/** Skipped PRs last, then the PRs whose thread needs you, then the oldest PR first. */
+/** The PRs whose thread needs you first, then the oldest PR first. */
 function byAttentionThenAge(a: LinkedQueuePr, b: LinkedQueuePr): number {
   return (
-    Number(a.skipLabel !== null) - Number(b.skipLabel !== null) ||
-    Number(needsYou(b)) - Number(needsYou(a)) ||
-    Date.parse(a.createdAt) - Date.parse(b.createdAt)
+    Number(needsYou(b)) - Number(needsYou(a)) || Date.parse(a.createdAt) - Date.parse(b.createdAt)
   );
 }
 
@@ -350,6 +355,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
   const reReviews = createReReviews(deps.kv, deps.now);
   const autoReview = createAutoReviewSettings(deps.kv);
   const autoStarted = createAutoStarted(deps.kv);
+  const headsSeen = createHeadsSeen(deps.kv);
+  const workingDay = createWorkingDay(deps.kv);
   let running: Promise<LoadedReviewQueue> | null = null;
   let queued: Promise<LoadedReviewQueue> | null = null;
 
@@ -446,6 +453,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       sentReReviews,
       autoSettings,
       started,
+      seenHeads,
+      working,
     ] = await Promise.all([
       projectIdsByRepo(),
       loadingLive,
@@ -460,7 +469,11 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       reReviews.list(),
       autoReview.get(),
       autoStarted.list(),
+      headsSeen.list(),
+      workingDay.get(),
     ]);
+    const now = deps.now();
+    const newHeads: [string, SeenHead][] = [];
     const marksByPr = new Map(marked.map((mark) => [refKey(mark.ref), mark]));
     const reReviewsByPr = new Map(sentReReviews.map((sent) => [refKey(sent.ref), sent]));
     const reviewThreadIds = new Set(reviews.map(({ thread }) => thread.id));
@@ -512,14 +525,29 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         autoReReview: false,
       };
       pr.autoQueued = autoSettings.enabled && !started.has(key) && isAutoReviewCandidate(pr);
-      if (autoSettings.enabled && mark !== undefined) {
-        const sentAt = reReviewsByPr.get(key)?.sentAt ?? 0;
-        pr.autoReReview = isAutoReReviewCandidate(pr, Math.max(mark.markedAt, sentAt));
+      if (mark !== undefined) {
+        let head = seenHeads.get(key);
+        if (head?.headOid !== row.headOid) {
+          head = { headOid: row.headOid, seenAt: now };
+          newHeads.push([key, head]);
+        }
+        if (autoSettings.enabled) {
+          const sent = reReviewsByPr.get(key);
+          const last = sent !== undefined && sent.sentAt > mark.markedAt ? sent : null;
+          pr.autoReReview = isAutoReReviewCandidate(pr, {
+            since: last?.sentAt ?? mark.markedAt,
+            reviewedHeadOid: last?.headOid ?? mark.headOid,
+            headSeenAt: head.seenAt,
+            now,
+          });
+        }
       }
       return [pr];
     });
-    const merged = linked.filter((pr) => pr.state !== "open");
-    const open = linked.filter((pr) => pr.state === "open" && !pr.ignored);
+    // A PR with a skip label such as "DO NOT REVIEW" never shows.
+    const shown = linked.filter((pr) => pr.skipLabel === null);
+    const merged = shown.filter((pr) => pr.state !== "open");
+    const open = shown.filter((pr) => pr.state === "open" && !pr.ignored);
     const reviewed = open.filter((pr) => isReviewed(pr) || pr.layer === null);
     const layers = filters.layers.map((layer) => {
       const prs = open.filter((pr) => pr.layer === layer.name && !isReviewed(pr));
@@ -540,13 +568,18 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         layers,
         reviewed: sectionOf(reviewed),
         merged: sectionOf(merged),
-        ignored: sectionOf(linked.filter((pr) => pr.ignored)),
+        ignored: sectionOf(shown.filter((pr) => pr.ignored)),
         hiddenEverywhere: filters.excludeRepos,
         teammatesTeam: filters.teammatesTeam,
         teammatesError,
         loadedAt,
         hasUnseen: [...waitingKeys].some((key) => !seen.has(key)),
-        hasReturned: linked.some((pr) => pr.thread?.returned != null),
+        // Only PRs that still wait for you: a reviewed or merged PR's unread review needs nothing.
+        hasReturned: layers.some((layer) =>
+          layer.prs.some((group) => group.prs.some((pr) => pr.thread?.returned != null)),
+        ),
+        autoReviewOn: autoSettings.enabled,
+        workingDay: working,
       },
       stale: {
         returnedThreadIds: [...returned].filter((id) => !liveIds.has(id)),
@@ -558,6 +591,8 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
         // A PR that left every list has closed or no longer asks for you; it never starts again.
         autoStartedKeys:
           truncatedLayers.size > 0 ? [] : [...started].filter((key) => !rowKeys.has(key)),
+        newHeads,
+        headSeenKeys: [...seenHeads.keys()].filter((key) => !marksByPr.has(key)),
       },
     };
   }
@@ -598,8 +633,16 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     ignoredKeys,
     expiredMarks,
     autoStartedKeys,
+    newHeads,
+    headSeenKeys,
   }: LinkedView["stale"]): Promise<void> {
     await Promise.all([
+      ...newHeads.map(([key, head]) =>
+        headsSeen
+          .set(key, head)
+          .catch((error) => deps.warn(`Could not record the head of ${key}: ${errorText(error)}`)),
+      ),
+      deleteEach(headSeenKeys, headsSeen.delete, (key) => `the recorded head of ${key}`),
       deleteEach(returnedThreadIds, returnedThreads.delete, (id) => `returned thread ${id}`),
       deleteEach(expiredMarks, marks.delete, (ref) => `the reviewed mark of ${refKey(ref)}`),
       deleteEach(expiredMarks, reReviews.delete, (ref) => `the re-review of ${refKey(ref)}`),
@@ -745,8 +788,9 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
 
   async function autoStartOnce(): Promise<void> {
     try {
-      const settings = await autoReview.get();
-      if (!settings.enabled) return;
+      const [settings, working] = await Promise.all([autoReview.get(), workingDay.get()]);
+      // Nothing starts on its own until you switch "Working today" on; it goes off at midnight.
+      if (!settings.enabled || !isWorkingDay(working, deps.now())) return;
       const stored = await readStored();
       const view = stored && viewOf(stored);
       if (view === null) return;
@@ -786,8 +830,12 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       const key = prKey(pr.repo, pr.number);
       const thread = pr.thread === null ? undefined : byId.get(pr.thread.id);
       if (thread === undefined || threadStatus(thread) !== "idle") continue;
+      // Already sent at this head, and no request came after it.
+      const last = lastSent.get(key);
       const requestedAt = Date.parse(pr.activity?.lastRequestedAt ?? "");
-      if ((lastSent.get(key)?.sentAt ?? 0) >= requestedAt) continue;
+      if (last !== undefined && last.headOid === pr.headOid && !(requestedAt > last.sentAt)) {
+        continue;
+      }
       const result = await sendReReview({
         threadId: thread.id,
         repo: pr.repo,
@@ -855,6 +903,18 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
       return { kind: "error", message: errorText(error) };
     }
     // The re-link marks the queued PRs and then starts the first ones.
+    await relink();
+    return { kind: "ok" };
+  }
+
+  /** Switches "Working today" on for the current local day, or off. */
+  async function setWorkingToday(working: boolean): Promise<ActionResult> {
+    try {
+      await workingDay.set(working ? localDay(deps.now()) : null);
+    } catch (error) {
+      return { kind: "error", message: errorText(error) };
+    }
+    // The re-link publishes the switch and then starts what waited.
     await relink();
     return { kind: "ok" };
   }
@@ -1131,6 +1191,7 @@ export function createReviewQueueService(deps: ReviewQueueServiceDeps) {
     setTeammatesTeam,
     getAutoReview,
     setAutoReview,
+    setWorkingToday,
     /** Resolves when the auto-review passes started so far are done. For tests. */
     autoReviewSettled: () => autoStarting,
     run,

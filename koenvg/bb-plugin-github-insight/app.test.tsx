@@ -109,6 +109,7 @@ const unusedReviewRpc = {
   getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
   getRepoImage: () => ({ kind: "absent" as const }),
   setAutoReview: () => ({ kind: "error" as const, message: "unused" }),
+  setWorkingToday: () => ({ kind: "error" as const, message: "unused" }),
   getActivity: () => ({ kind: "loading" as const }),
   refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
   markActivityRead: () => ({ kind: "error" as const, message: "unused" }),

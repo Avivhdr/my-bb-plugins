@@ -7,7 +7,7 @@ import { submitRules, type ReviewEvent } from "../core/review-submit";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { useCommentDrafts } from "./comment-drafts";
-import { PRIMARY_BUTTON, TEXTAREA } from "./controls";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, TEXTAREA } from "./controls";
 import { useDraftSaves } from "./draft-saves";
 import { messageOf } from "./error-message";
 import { announceSummaryWritten } from "./summary-written";
@@ -65,19 +65,19 @@ export function SubmitPanel({
 }: SubmitPanelProps) {
   const rpc = useRpc<typeof rpcContract>();
   const headingId = useId();
-  const reasonId = useId();
   const drafts = useCommentDrafts();
   const commentCount = commentDrafts.filter((draft) => hasText(drafts.stateOf(draft).text)).length;
   const summary = useSummaryText(threadId, summaryDraft);
-  const [event, setEvent] = useState<ReviewEvent>("COMMENT");
-  const [busy, setBusy] = useState(false);
+  // The verdict being submitted, then the one just submitted while its check mark shows.
+  const [pending, setPending] = useState<ReviewEvent | null>(null);
+  const busy = pending !== null;
   const [outcome, setOutcome] = useState<SubmitReviewResult | null>(null);
-  const [submittedAt, setSubmittedAt] = useState<number | null>(null);
+  const [submitted, setSubmitted] = useState<{ event: ReviewEvent; at: number } | null>(null);
   useEffect(() => {
-    if (submittedAt === null) return;
-    const timer = setTimeout(() => setSubmittedAt(null), SUBMITTED_LABEL_MS);
+    if (submitted === null) return;
+    const timer = setTimeout(() => setSubmitted(null), SUBMITTED_LABEL_MS);
     return () => clearTimeout(timer);
-  }, [submittedAt]);
+  }, [submitted]);
 
   const rules = submitRules({
     viewerIsAuthor: head.viewerIsAuthor,
@@ -85,15 +85,18 @@ export function SubmitPanel({
     body: summary.text,
     commentCount,
   });
-  const selected = rules.find((rule) => rule.event === event) ?? rules[0]!;
+  // A reason that holds for every verdict, such as a merged PR, shows under the buttons.
+  const sharedReason = rules.every((rule) => rule.disabledReason === rules[0]!.disabledReason)
+    ? rules[0]!.disabledReason
+    : null;
 
-  async function submit() {
-    setBusy(true);
+  async function submit(event: ReviewEvent) {
+    setPending(event);
     setOutcome(null);
     await summary.flush();
     await drafts.flushAll();
     const result = await rpc
-      .call("submitReview", { threadId, event: selected.event, body: summary.text })
+      .call("submitReview", { threadId, event, body: summary.text })
       .catch((error: unknown) => ({
         kind: "error" as const,
         message: messageOf(error),
@@ -103,10 +106,10 @@ export function SubmitPanel({
       summary.clear();
       onWritten();
       announceSummaryWritten(threadId);
-      setSubmittedAt(Date.now());
+      setSubmitted({ event, at: Date.now() });
     }
     setOutcome(result);
-    setBusy(false);
+    setPending(null);
   }
 
   return (
@@ -156,37 +159,29 @@ export function SubmitPanel({
             disabled={busy}
             onChange={(change) => summary.setText(change.target.value)}
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              role="radiogroup"
-              aria-label="Verdict"
-              className="flex flex-wrap items-center gap-1.5"
-            >
-              {rules.map((rule) => (
-                <VerdictOption
-                  key={rule.event}
+          <div
+            role="group"
+            aria-label="Submit as"
+            className="flex flex-wrap items-center justify-end gap-1.5"
+          >
+            {rules.map((rule) => (
+              <button
+                key={rule.event}
+                type="button"
+                title={rule.disabledReason ?? `Submit the review as ${VERDICT_LABELS[rule.event]}`}
+                className={rule.event === "APPROVE" ? PRIMARY_BUTTON : SECONDARY_BUTTON}
+                disabled={busy || rule.disabledReason !== null}
+                onClick={() => void submit(rule.event)}
+              >
+                <VerdictLabel
                   event={rule.event}
-                  checked={rule.event === selected.event}
-                  disabled={busy}
-                  select={() => setEvent(rule.event)}
+                  pending={pending === rule.event}
+                  submittedAt={submitted?.event === rule.event ? submitted.at : null}
                 />
-              ))}
-            </div>
-            <button
-              type="button"
-              className={cn(PRIMARY_BUTTON, "ml-auto")}
-              aria-describedby={selected.disabledReason === null ? undefined : reasonId}
-              disabled={busy || selected.disabledReason !== null}
-              onClick={() => void submit()}
-            >
-              <SubmitLabel busy={busy} submittedAt={submittedAt} />
-            </button>
+              </button>
+            ))}
           </div>
-          {selected.disabledReason !== null && (
-            <p id={reasonId} className="text-xs text-muted-foreground">
-              {selected.disabledReason}
-            </p>
-          )}
+          {sharedReason !== null && <p className="text-xs text-muted-foreground">{sharedReason}</p>}
           {summary.saveError !== null && <ErrorText>{summary.saveError}</ErrorText>}
           {outcome?.kind === "error" && (
             <ErrorText>
@@ -227,12 +222,20 @@ export function SubmitPanel({
 
 const SUBMITTED_LABEL_MS = 1800;
 
-function SubmitLabel({ busy, submittedAt }: { busy: boolean; submittedAt: number | null }) {
-  if (busy) {
+function VerdictLabel({
+  event,
+  pending,
+  submittedAt,
+}: {
+  event: ReviewEvent;
+  pending: boolean;
+  submittedAt: number | null;
+}) {
+  if (pending) {
     return (
       <>
         <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" />
-        Submitting…
+        {VERDICT_LABELS[event]}
       </>
     );
   }
@@ -250,40 +253,7 @@ function SubmitLabel({ busy, submittedAt }: { busy: boolean; submittedAt: number
       </span>
     );
   }
-  return <>Submit</>;
-}
-
-function VerdictOption({
-  event,
-  checked,
-  disabled,
-  select,
-}: {
-  event: ReviewEvent;
-  checked: boolean;
-  disabled: boolean;
-  select: () => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "inline-flex h-7 cursor-pointer select-none items-center rounded-full border px-2.5 text-xs font-medium transition-colors has-[:disabled]:cursor-default has-[:disabled]:opacity-60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50",
-        checked
-          ? "border-foreground/30 bg-background text-foreground"
-          : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-      )}
-    >
-      <input
-        type="radio"
-        name="verdict"
-        className="sr-only"
-        checked={checked}
-        disabled={disabled}
-        onChange={select}
-      />
-      {VERDICT_LABELS[event]}
-    </label>
-  );
+  return <>{VERDICT_LABELS[event]}</>;
 }
 
 function useSummaryText(threadId: string, summaryDraft: SummaryDraft | null) {

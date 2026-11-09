@@ -1,4 +1,9 @@
-import { countedPrs, type LinkedQueuePr, type ReviewQueueView } from "./review-queue-view";
+import {
+  countedPrs,
+  offersReReview,
+  type LinkedQueuePr,
+  type ReviewQueueView,
+} from "./review-queue-view";
 
 export interface ReviewBadge {
   /** Waiting PRs with no review under way or ready: nothing ran, it failed, or you opened it. */
@@ -13,8 +18,11 @@ export interface ReviewBadge {
 
 type Stage = "waiting" | "in_progress" | "ready";
 
-function stageOf({ thread }: LinkedQueuePr): Stage {
+function stageOf(pr: LinkedQueuePr): Stage {
+  const { thread } = pr;
   if (thread === null || thread.returned === "failed") return "waiting";
+  // The PR changed since the review finished: it waits for Re-review, not for you to read it.
+  if (offersReReview(pr)) return "waiting";
   if (thread.returned === "finished") return "ready";
   return thread.status === "running" || thread.status === "needs_you" ? "in_progress" : "waiting";
 }

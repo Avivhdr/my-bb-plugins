@@ -102,6 +102,7 @@ function renderPanel(threadId = "thr_1", handlers: Handlers = {}) {
         getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
         getRepoImage: () => ({ kind: "absent" as const }),
         setAutoReview: fail,
+        setWorkingToday: fail,
         getActivity: () => ({ kind: "loading" as const }),
         refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
         markActivityRead: () => ({ kind: "error" as const, message: "unused" }),

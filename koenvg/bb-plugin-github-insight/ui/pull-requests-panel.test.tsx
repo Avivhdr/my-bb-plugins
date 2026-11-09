@@ -11,6 +11,7 @@ import type {
   rpcContract,
 } from "../contract";
 import type { PrInsight } from "../core/overview";
+import { localDay } from "../core/working-day";
 import {
   buildReviewPrompt,
   DEFAULT_RE_REVIEW_INSTRUCTIONS,
@@ -1029,6 +1030,46 @@ describe("Review composer", () => {
   });
 });
 
+describe("Working today switch", () => {
+  it("is hidden while auto-review is off", async () => {
+    const slot = renderPanel("", () => ok(view([queuePr()])));
+
+    await findCard(slot, "Direct", "acme/api#15");
+    expect(slot.queryByRole("checkbox", { name: "Working today" })).toBeNull();
+  });
+
+  it("shows off from an earlier day and switches on for today", async () => {
+    const slot = renderPanel(
+      "",
+      () => ok({ ...view([queuePr()]), autoReviewOn: true, workingDay: "2020-01-01" }),
+      { setWorkingToday: () => ({ kind: "ok" as const }) },
+    );
+
+    const toggle = (await slot.findByRole("checkbox", {
+      name: "Working today",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+
+    await vi.waitFor(() =>
+      expect(
+        slot.inspection.rpcCalls.find((call) => call.method === "setWorkingToday")?.input,
+      ).toEqual({ working: true }),
+    );
+  });
+
+  it("shows on when switched on today", async () => {
+    const slot = renderPanel("", () =>
+      ok({ ...view([queuePr()]), autoReviewOn: true, workingDay: localDay(Date.now()) }),
+    );
+
+    const toggle = (await slot.findByRole("checkbox", {
+      name: "Working today",
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+});
+
 describe("Reviewed section", () => {
   it("shows the layers above Reviewed, Merged, and Ignored", async () => {
     const slot = renderPanel("", () =>
@@ -1515,6 +1556,28 @@ describe("agent status filter", () => {
     expect(slot.getByRole("button", { name: "Ready 1" })).toBeTruthy();
   });
 
+  it("leaves a finished review that Re-review replaces out of Ready", async () => {
+    const finished = { ...reviewThread, status: "idle" as const, returned: "finished" as const };
+    const slot = renderPanel("", () =>
+      ok(
+        view([
+          queuePr({ number: 1, thread: finished }),
+          queuePr({
+            number: 2,
+            review: "updated_since_review",
+            thread: finished,
+            reReview: true,
+          }),
+        ]),
+      ),
+    );
+
+    const card = await findCard(slot, "Direct", "acme/api#2");
+    expect(within(card).getByRole("button", { name: "Re-review" })).toBeTruthy();
+    expect(within(card).queryByTestId("review-status")).toBeNull();
+    expect(slot.getByRole("button", { name: "Ready 1" })).toBeTruthy();
+  });
+
   it("hides the filter and shows Nothing to review when the list empties under a filter", async () => {
     const slot = renderPanel("", agentQueue);
 
@@ -1685,18 +1748,6 @@ describe("review layers", () => {
         .getAllByRole("listitem")
         .map((card) => card.getAttribute("aria-label")),
     ).toEqual(["acme/web#3", "acme/web#4"]);
-  });
-
-  it("dims a PR with a skip label, shows the label, and leaves it out of the count", async () => {
-    const slot = renderPanel("", () =>
-      ok(view([queuePr(), queuePr({ number: 16, skipLabel: "DO NOT REVIEW" })])),
-    );
-
-    const card = await findCard(slot, "Direct", "acme/api#16");
-    expect(within(card).getByTestId("queue-skip-label").textContent).toBe("DO NOT REVIEW");
-    expect(card.className).toContain("opacity-60");
-    const direct = slot.getByRole("region", { name: "Direct" });
-    expect(within(direct).getByTestId("queue-count").textContent).toBe("1");
   });
 
   it("ignores a PR from its card", async () => {

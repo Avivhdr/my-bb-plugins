@@ -93,6 +93,8 @@ export function view(prs: LinkedQueuePr[], truncated = false): ReviewQueueView {
     loadedAt: LOADED_AT,
     hasUnseen: false,
     hasReturned: false,
+    autoReviewOn: false,
+    workingDay: null,
   };
 }
 
@@ -157,6 +159,7 @@ export interface PanelRpc {
   getAutoReview: () => AutoReviewSettings | Promise<AutoReviewSettings>;
   getRepoImage: () => ImageWireResult | Promise<ImageWireResult>;
   setAutoReview: () => ActionResult | Promise<ActionResult>;
+  setWorkingToday: () => ActionResult | Promise<ActionResult>;
   getActivity: () => ActivityResult | Promise<ActivityResult>;
   refreshActivity: () => LoadedActivity | Promise<LoadedActivity>;
   markActivityRead: () => ActionResult | Promise<ActionResult>;
@@ -197,6 +200,7 @@ export function panelRpc(getReviewQueue: QueueHandler, rpc: Partial<PanelRpc> = 
     getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
     getRepoImage: () => ({ kind: "absent" as const }),
     setAutoReview: () => ({ kind: "ok" as const }),
+    setWorkingToday: () => ({ kind: "ok" as const }),
     getActivity: () => ({ kind: "loading" as const }),
     refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
     markActivityRead: () => ({ kind: "ok" as const }),

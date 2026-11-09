@@ -273,6 +273,7 @@ function renderTabFor(threadId: string, handlers: RpcHandlers, ...results: Revie
         getAutoReview: () => ({ enabled: false, maxRunning: 3 }),
         getRepoImage: () => ({ kind: "absent" as const }),
         setAutoReview: () => ({ kind: "error", message: "unused" }),
+        setWorkingToday: () => ({ kind: "error", message: "unused" }),
         getActivity: () => ({ kind: "loading" as const }),
         refreshActivity: () => ({ kind: "error" as const, message: "unused", lastGood: null }),
         markActivityRead: () => ({ kind: "error" as const, message: "unused" }),
@@ -2156,13 +2157,13 @@ describe("Files tab submit panel", () => {
   }
 
   function verdicts(panel: ReturnType<typeof within>) {
-    return panel
-      .getAllByRole("radio")
-      .map((radio: HTMLElement) => radio.closest("label")!.textContent);
+    return within(panel.getByRole("group", { name: "Submit as" }))
+      .getAllByRole("button")
+      .map((button: HTMLElement) => button.textContent);
   }
 
-  function submitButton(panel: ReturnType<typeof within>) {
-    return panel.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
+  function verdictButton(panel: ReturnType<typeof within>, name = "Comment") {
+    return panel.getByRole("button", { name }) as HTMLButtonElement;
   }
 
   function summaryBox(panel: ReturnType<typeof within>) {
@@ -2199,19 +2200,19 @@ describe("Files tab submit panel", () => {
     const panel = await openPanel(slot);
 
     expect(panel.getByText("1 comment")).toBeTruthy();
-    expect(submitButton(panel).disabled).toBe(false);
+    expect(verdictButton(panel).disabled).toBe(false);
   });
 
   it("counts an empty comment draft once the user types in it", async () => {
     const slot = renderTab(withCommentDrafts(commentDraft("c1", { body: "" })));
     const panel = await openPanel(slot);
     expect(panel.getByText("0 comments")).toBeTruthy();
-    expect(submitButton(panel).disabled).toBe(true);
+    expect(verdictButton(panel).disabled).toBe(true);
 
     fireEvent.change((await findCommentDraft(slot)).box, { target: { value: "Rename this" } });
 
     expect(panel.getByText("1 comment")).toBeTruthy();
-    expect(submitButton(panel).disabled).toBe(false);
+    expect(verdictButton(panel).disabled).toBe(false);
   });
 
   it("shows Comment, Approve, and Request changes on another person's PR", async () => {
@@ -2226,24 +2227,24 @@ describe("Files tab submit panel", () => {
     expect(verdicts(await openPanel(slot))).toEqual(["Comment"]);
   });
 
-  it("disables Request changes without a summary, with the reason", async () => {
+  it("disables Request changes without a summary, with the reason on hover", async () => {
     const slot = renderTab(withCommentDrafts(commentDraft("c1")));
     const panel = await openPanel(slot);
 
-    fireEvent.click(panel.getByRole("radio", { name: "Request changes" }));
-
-    expect(submitButton(panel).disabled).toBe(true);
-    expect(panel.getByText("Add a summary to request changes")).toBeTruthy();
+    const requestChanges = verdictButton(panel, "Request changes");
+    expect(requestChanges.disabled).toBe(true);
+    expect(requestChanges.title).toBe("Add a summary to request changes");
+    expect(verdictButton(panel, "Approve").disabled).toBe(false);
     fireEvent.change(summaryBox(panel), { target: { value: "Fix the null check" } });
-    expect(submitButton(panel).disabled).toBe(false);
+    expect(requestChanges.disabled).toBe(false);
   });
 
   it("disables Comment with no summary and no comment drafts", async () => {
     const slot = renderTab(recorded);
     const panel = await openPanel(slot);
 
-    expect(submitButton(panel).disabled).toBe(true);
-    expect(panel.getByText("Add a summary or a comment")).toBeTruthy();
+    expect(verdictButton(panel).disabled).toBe(true);
+    expect(verdictButton(panel).title).toBe("Add a summary or a comment");
   });
 
   it("saves the summary once the typing stops", async () => {
@@ -2283,8 +2284,7 @@ describe("Files tab submit panel", () => {
 
     fireEvent.change(box, { target: { value: "Edited comment" } });
     fireEvent.change(summaryBox(panel), { target: { value: "Ship it" } });
-    fireEvent.click(panel.getByRole("radio", { name: "Approve" }));
-    fireEvent.click(submitButton(panel));
+    fireEvent.click(verdictButton(panel, "Approve"));
 
     expect(await panel.findByText("Review submitted")).toBeTruthy();
     await waitFor(() => expect(slot.queryByRole("region", { name: "Pending comment" })).toBeNull());
@@ -2316,7 +2316,7 @@ describe("Files tab submit panel", () => {
     );
     const panel = await openPanel(slot);
 
-    fireEvent.click(submitButton(panel));
+    fireEvent.click(verdictButton(panel));
 
     const alert = await panel.findByRole("alert");
     expect(alert.textContent).toContain("You have a pending review on GitHub.");
@@ -2335,7 +2335,7 @@ describe("Files tab submit panel", () => {
     );
     const panel = await openPanel(slot);
 
-    fireEvent.click(submitButton(panel));
+    fireEvent.click(verdictButton(panel));
 
     expect(await panel.findByText("Review submitted")).toBeTruthy();
     expect((await panel.findByRole("alert")).textContent).toBe(
@@ -2350,7 +2350,7 @@ describe("Files tab submit panel", () => {
     );
     const panel = await openPanel(slot);
 
-    fireEvent.click(submitButton(panel));
+    fireEvent.click(verdictButton(panel));
 
     const alert = await panel.findByRole("alert");
     expect(alert.textContent).toBe("gh not logged in");
@@ -2362,7 +2362,7 @@ describe("Files tab submit panel", () => {
     const panel = await openPanel(slot);
 
     expect(await slot.findByRole("region", { name: "Pending comment" })).toBeTruthy();
-    expect(submitButton(panel).disabled).toBe(true);
+    expect(verdictButton(panel).disabled).toBe(true);
     expect(panel.getByText("Pull request is merged")).toBeTruthy();
   });
 });
@@ -2458,11 +2458,11 @@ describe("Files tab viewer review", () => {
     fireEvent.click(await slot.findByRole("button", { name: "Submit review" }));
     const panel = within(slot.getByRole("region", { name: "Submit review" }));
 
-    fireEvent.click(panel.getByRole("radio", { name: "Approve" }));
-    fireEvent.click(panel.getByRole("button", { name: "Submit" }));
+    fireEvent.click(panel.getByRole("button", { name: "Approve" }));
 
     expect(await slot.findByText("You approved")).toBeTruthy();
     expect(panel.getByRole("button", { name: "Submitted" })).toBeTruthy();
+    expect(panel.queryByRole("button", { name: "Submit" })).toBeNull();
   });
 });
 

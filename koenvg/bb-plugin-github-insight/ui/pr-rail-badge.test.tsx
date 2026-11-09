@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { rpcContract } from "../contract";
+import { localDay } from "../core/working-day";
 import {
   activityItem,
   activityOk,
@@ -92,6 +93,29 @@ describe("Pull Requests rail badge", () => {
     expect(ready.textContent).toBe("1 review ready for you");
     expect(ready.className).toContain("bg-green-600");
     expect(within(item).queryByRole("img", { name: "Review agent came back" })).toBeNull();
+  });
+
+  it("shows an X while auto-review is on and you are not working today, also with nothing waiting", async () => {
+    const item = addRailItem();
+    renderOverlay(() => ok({ ...view([]), autoReviewOn: true, workingDay: "2020-01-01" }));
+
+    const off = await within(item).findByTestId("rail-not-working");
+    expect(off.getAttribute("aria-label")).toBe("Not working today: auto-review is paused");
+  });
+
+  it("shows no X once you switched on working today, or while auto-review is off", async () => {
+    const working = addRailItem();
+    const slot = renderOverlay(() =>
+      ok({ ...view([queuePr()]), autoReviewOn: true, workingDay: localDay(Date.now()) }),
+    );
+    await within(working).findByTestId("rail-review-count");
+    expect(within(working).queryByTestId("rail-not-working")).toBeNull();
+
+    await slot.behavior.emitRealtime(
+      "review-queue.updated",
+      ok({ ...view([queuePr()]), autoReviewOn: false, workingDay: null }),
+    );
+    expect(within(working).queryByTestId("rail-not-working")).toBeNull();
   });
 
   it("attaches once the rail item appears", async () => {

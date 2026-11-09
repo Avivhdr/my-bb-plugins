@@ -88,9 +88,14 @@ export function AutoReviewSettings() {
         not. Skipped, ignored, and reviewed PRs and PRs that already have a thread stay out.
       </p>
       <p className="text-xs text-muted-foreground">
-        When the author requests your review again on a PR you marked reviewed, auto-review sends
-        Re-review to its idle review thread, once per request. Re-reviews go before new reviews and
-        take a slot too.
+        On a PR you marked reviewed, auto-review sends Re-review to its idle review thread when the
+        author requests your review again, once per request, or pushes new commits and then leaves
+        the PR alone for 15 minutes, once per head. New comments alone do not send it. Re-reviews go
+        before new reviews and take a slot too.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Nothing starts on its own until you switch on "Working today" in the Pull Requests panel. It
+        switches off at midnight, and the Pull Requests icon shows an ✕ while it is off.
       </p>
       {status.kind === "error" && (
         <p role="alert" className="text-xs text-destructive">

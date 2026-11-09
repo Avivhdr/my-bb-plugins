@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { reviewBadge } from "../core/review-badge";
+import { waitsForWorkingDay } from "../core/working-day";
 import { useReviewQueue } from "./use-review-queue";
+import { useToday } from "./use-today";
 
 const RAIL_ITEM = '[data-nav-rail-item="github-insight/pull-requests"]';
 const CUTOUT = { boxShadow: "0 0 0 2px var(--surface-recessed-solid)" };
@@ -11,24 +13,29 @@ const PILL =
 
 export function PrRailBadge() {
   const item = useHostElement(RAIL_ITEM);
-  const badge = reviewBadge(useReviewQueue().view);
-  if (item === null || badge === null) return null;
-  const { inProgress, ready } = badge;
-  const anyCount = badge.waiting !== null || inProgress > 0 || ready > 0;
+  const { view } = useReviewQueue();
+  useToday();
+  const badge = reviewBadge(view);
+  const notWorking = view !== null && waitsForWorkingDay(view, Date.now());
+  if (item === null || (badge === null && !notWorking)) return null;
+  const inProgress = badge?.inProgress ?? 0;
+  const ready = badge?.ready ?? 0;
+  const waiting = badge?.waiting ?? null;
+  const anyCount = waiting !== null || inProgress > 0 || ready > 0;
   return createPortal(
     // Plugin CSS only applies inside an element tagged with the plugin id.
     <span data-bb-plugin="github-insight" className="pointer-events-none relative w-0 self-stretch">
       <span className="absolute inset-y-0 right-0 aspect-square">
-        {badge.waiting !== null && (
+        {waiting !== null && (
           <span
             data-testid="rail-review-count"
             style={CUTOUT}
             className={`${PILL} left-1/2 -mt-3.5 ml-0.5 bg-red-600`}
           >
-            {badge.waiting}
+            {waiting}
             <span className="sr-only">
-              {badge.waiting === "1" ? " pull request needs review" : " pull requests need review"}
-              {badge.unseen && ", new"}
+              {waiting === "1" ? " pull request needs review" : " pull requests need review"}
+              {badge?.unseen && ", new"}
             </span>
           </span>
         )}
@@ -56,7 +63,19 @@ export function PrRailBadge() {
             </span>
           </span>
         )}
-        {badge.returned && !anyCount && (
+        {notWorking && (
+          <span
+            data-testid="rail-not-working"
+            role="img"
+            aria-label="Not working today: auto-review is paused"
+            title="Not working today: auto-review is paused"
+            style={CUTOUT}
+            className={`${PILL} right-1/2 mt-1 mr-0.5 bg-neutral-700`}
+          >
+            ✕
+          </span>
+        )}
+        {badge?.returned && !anyCount && (
           <span
             role="img"
             aria-label="Review agent came back"

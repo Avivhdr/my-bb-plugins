@@ -4,6 +4,7 @@ import type { LinkedQueuePr, LoadedReviewQueue, QueueSection, ReviewQueueView } 
 import type { PullRequestRef } from "../core/pr-ref";
 import type { FetchedQueue, QueuePr } from "../core/review-queue";
 import { viewPrs } from "../core/review-queue-view";
+import { localDay } from "../core/working-day";
 import type { PrResolution } from "../pr-lookup";
 import {
   createReviewQueueService,
@@ -1821,7 +1822,7 @@ describe("returned review threads", () => {
     expect(returnedOf(published[1]!)).toEqual({ row: "needs_you", view: true });
   });
 
-  it("counts a returned thread on a reviewed PR", async () => {
+  it("does not count a returned thread on a reviewed PR", async () => {
     const { service, kv } = serviceWith(reviewOn15());
     kv.entries.set(...mark("acme/api", 15, "head-15"));
     kv.entries.set("review-returned:thr_review", { v: 1 });
@@ -1829,7 +1830,25 @@ describe("returned review threads", () => {
     const view = viewOf(await service.refreshReviewQueue());
 
     expect(view.layers.flatMap((layer) => layer.prs)).toEqual([]);
-    expect(view.hasReturned).toBe(true);
+    expect(view.reviewed.flatMap((group) => group.prs)[0]?.thread?.returned).toBe("finished");
+    expect(view.hasReturned).toBe(false);
+  });
+
+  it("does not count a returned thread on a merged PR", async () => {
+    const { service, kv } = serviceWith({
+      ...reviewOn15(),
+      fetchReviewQueue: async () =>
+        queueOf(
+          [],
+          [queuePr("acme/api", 15, { state: "merged", closedAt: "2026-10-01T10:00:00Z" })],
+        ),
+    });
+    kv.entries.set("review-returned:thr_review", { v: 1 });
+
+    const view = viewOf(await service.refreshReviewQueue());
+
+    expect(view.merged.flatMap((group) => group.prs).map((pr) => pr.number)).toEqual([15]);
+    expect(view.hasReturned).toBe(false);
   });
 
   it("does not count a stopped thread whose agent runs again", async () => {
@@ -2005,20 +2024,35 @@ describe("layers", () => {
     });
   });
 
-  it("lists a PR with a skip label last in its layer and leaves it out of the count", async () => {
-    const { service } = serviceWith({
+  it("hides a PR with a skip label from every list, in any case", async () => {
+    const { service, kv } = serviceWith({
       fetchReviewQueue: async () =>
-        queueOf([
-          queuePr("acme/api", 15, { labels: ["do not review"], updatedAt: "2026-10-02T10:00:00Z" }),
-          queuePr("acme/api", 12),
-        ]),
+        queueOf(
+          [queuePr("acme/api", 15, { labels: ["do not review"] }), queuePr("acme/api", 12)],
+          [
+            queuePr("acme/api", 16, {
+              labels: ["DO NOT REVIEW"],
+              state: "merged",
+              closedAt: "2026-10-01T10:00:00Z",
+            }),
+            queuePr("acme/api", 17, { state: "merged", closedAt: "2026-10-01T10:00:00Z" }),
+          ],
+        ),
     });
+    kv.entries.set(...mark("acme/api", 16, "head-16"));
+    kv.entries.set(...mark("acme/api", 17, "head-17"));
 
-    const [direct] = viewOf(await service.refreshReviewQueue()).layers;
+    const result = await service.refreshReviewQueue();
 
-    expect(numbers(direct!.prs)).toEqual([["acme/api", [12, 15]]]);
-    expect(direct!.count).toBe(1);
-    expect(direct!.prs[0]!.prs[1]!.skipLabel).toBe("do not review");
+    expect(allSections(result)).toEqual({
+      Direct: [["acme/api", [12]]],
+      Teammates: [],
+      Team: [],
+      reviewed: [],
+      merged: [["acme/api", [17]]],
+      ignored: [],
+    });
+    expect(viewOf(result).layers[0]!.count).toBe(1);
   });
 
   it("flags only the layer whose search was cut at 50 as truncated", async () => {
@@ -2361,8 +2395,15 @@ describe("teammates", () => {
 describe("auto-review", () => {
   const API_PROJECT = project("prj_api", "https://github.com/acme/api.git", 1);
 
-  /** Review threads that the fake spawn adds, with their PR metadata. */
-  function autoReviewWith(prs: QueuePr[], overrides: Partial<ReviewQueueServiceDeps> = {}) {
+  /**
+   * Review threads that the fake spawn adds, with their PR metadata. "Working today" is on unless
+   * `working` is false.
+   */
+  function autoReviewWith(
+    prs: QueuePr[],
+    overrides: Partial<ReviewQueueServiceDeps> = {},
+    working = true,
+  ) {
     const reviewThreads: QueueThread[] = [];
     const metadata: Record<string, unknown> = {};
     const spawned: { pr: { repo: string; number: number }; request: unknown }[] = [];
@@ -2381,6 +2422,10 @@ describe("auto-review", () => {
       },
       ...overrides,
     });
+    if (working) {
+      const now = overrides.now?.() ?? 1_000;
+      setup.kv.entries.set("working-day", { v: 1, day: localDay(now) });
+    }
     async function settle() {
       for (let pass = 0; pass < 6; pass += 1) {
         await setup.service.autoReviewSettled();
@@ -2573,6 +2618,77 @@ describe("auto-review", () => {
     expect(started).toEqual([1]);
   });
 
+  describe("working today", () => {
+    const MONDAY_9AM = new Date(2026, 10, 9, 9, 0).getTime();
+
+    function offDuty() {
+      let clock = MONDAY_9AM;
+      const setup = autoReviewWith(directPrs(2), { now: () => clock }, false);
+      return { ...setup, setClock: (at: number) => (clock = at) };
+    }
+
+    it("starts nothing until you switch it on, then starts what waited", async () => {
+      const { service, settle, spawnedNumbers } = offDuty();
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+      expect(spawnedNumbers()).toEqual([]);
+      expect(await queuedNumbers(service)).toEqual([1, 2]);
+
+      expect(await service.setWorkingToday(true)).toEqual({ kind: "ok" });
+      await settle();
+
+      expect(spawnedNumbers()).toEqual([1, 2]);
+    });
+
+    it("publishes the switch and the auto-review setting in the view", async () => {
+      const { service, kv } = offDuty();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await service.refreshReviewQueue();
+      const before = viewOf((await service.getReviewQueue()) as LoadedReviewQueue);
+      expect(before.autoReviewOn).toBe(true);
+      expect(before.workingDay).toBeNull();
+
+      await service.setWorkingToday(true);
+
+      const after = viewOf((await service.getReviewQueue()) as LoadedReviewQueue);
+      expect(after.workingDay).toBe("2026-11-09");
+      expect(kv.entries.get("working-day")).toEqual({ v: 1, day: "2026-11-09" });
+    });
+
+    it("goes off at midnight and stays off until switched on again", async () => {
+      const { service, settle, setFetched, spawnedNumbers, setClock } = offDuty();
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await service.setWorkingToday(true);
+      await settle();
+      expect(spawnedNumbers()).toEqual([1, 2]);
+
+      setClock(new Date(2026, 10, 10, 0, 5).getTime());
+      setFetched(queueOf([queuePr("acme/api", 3)]));
+      await service.refreshReviewQueue();
+      await settle();
+
+      expect(spawnedNumbers()).toEqual([1, 2]);
+      expect(await queuedNumbers(service)).toEqual([3]);
+    });
+
+    it("pauses again when switched off", async () => {
+      const { service, settle, setFetched, spawnedNumbers } = offDuty();
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await service.setWorkingToday(true);
+      await settle();
+
+      await service.setWorkingToday(false);
+      setFetched(queueOf([queuePr("acme/api", 3)]));
+      await service.refreshReviewQueue();
+      await settle();
+
+      expect(spawnedNumbers()).toEqual([1, 2]);
+    });
+  });
+
   it("stops queueing when turned off", async () => {
     const { service, settle, spawnedNumbers } = autoReviewWith(directPrs(3));
     await service.refreshReviewQueue();
@@ -2594,13 +2710,14 @@ describe("auto-review", () => {
     /** PR 15, marked reviewed at `abc123`, with an idle review thread and a new head. */
     function reRequested(lastRequestedAt: string | null, overrides: Partial<QueuePr> = {}) {
       const sent: { threadId: string; text: string }[] = [];
+      let clock = NOW;
       const pr = queuePr("acme/api", 15, {
         headOid: "def456",
         activity: { conversationComments: [], inlineComments: [], lastRequestedAt },
         ...overrides,
       });
       const setup = autoReviewWith([], {
-        now: () => NOW,
+        now: () => clock,
         sendMessage: async (threadId, text) => {
           sent.push({ threadId, text });
           const thread = setup.reviewThreads.find(({ id }) => id === threadId);
@@ -2613,7 +2730,7 @@ describe("auto-review", () => {
       setup.reviewThreads.push(reviewThread("thr_review", { status: "idle" }));
       setup.metadata.thr_review = reviewPrEntry("acme/api", 15);
       setup.kv.entries.set(...mark("acme/api", 15, "abc123", MARKED_AT));
-      return { ...setup, sent };
+      return { ...setup, sent, advance: (ms: number) => (clock += ms) };
     }
 
     it("sends Re-review to the idle review thread when your review is requested again", async () => {
@@ -2668,14 +2785,96 @@ describe("auto-review", () => {
       expect(sent).toHaveLength(1);
     });
 
-    it("does not send for new commits alone, without a new request", async () => {
-      const { service, settle, sent } = reRequested(null);
+    it("waits 15 minutes after the last push before it sends Re-review for new commits", async () => {
+      const { service, settle, sent, advance } = reRequested(null);
       await service.refreshReviewQueue();
-
       await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      await settle();
+      expect(sent).toEqual([]);
+
+      advance(14 * 60_000);
+      await service.refreshReviewQueue();
+      await settle();
+      expect(sent).toEqual([]);
+
+      advance(60_000);
+      await service.refreshReviewQueue();
+      await settle();
+      expect(sent.map(({ threadId }) => threadId)).toEqual(["thr_review"]);
+    });
+
+    it("starts the wait over when another push comes in", async () => {
+      const { service, settle, sent, advance, setFetched } = reRequested(null);
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      advance(10 * 60_000);
+      const pushed = queuePr("acme/api", 15, { headOid: "ghi789" });
+      setFetched(queueOf([pushed], [pushed]));
+      await service.refreshReviewQueue();
+      await settle();
+
+      advance(10 * 60_000);
+      await service.refreshReviewQueue();
+      await settle();
+      expect(sent).toEqual([]);
+
+      advance(5 * 60_000);
+      await service.refreshReviewQueue();
+      await settle();
+      expect(sent).toHaveLength(1);
+    });
+
+    it("re-reviews new commits once per head", async () => {
+      const { service, settle, sent, advance, reviewThreads } = reRequested(null);
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      advance(15 * 60_000);
+      await service.refreshReviewQueue();
+      await settle();
+      expect(sent).toHaveLength(1);
+
+      reviewThreads[0]!.status = "idle";
+      await service.threadStopped("thr_review");
+      advance(60 * 60_000);
+      await service.refreshReviewQueue();
+      await settle();
+
+      expect(sent).toHaveLength(1);
+    });
+
+    it("does not send for new comments alone, at the reviewed head", async () => {
+      const { service, settle, sent, advance, setFetched } = reRequested(null);
+      const commented = queuePr("acme/api", 15, {
+        headOid: "abc123",
+        activity: {
+          conversationComments: [{ id: "c1", postedAt: "2026-10-07T09:30:00Z" }],
+          inlineComments: [],
+          lastRequestedAt: null,
+        },
+      });
+      setFetched(queueOf([commented], [commented]));
+      await service.refreshReviewQueue();
+      await service.setAutoReview({ enabled: true, maxRunning: 3 });
+      advance(60 * 60_000);
+      await service.refreshReviewQueue();
       await settle();
 
       expect(sent).toEqual([]);
+    });
+
+    it("forgets the recorded head once the PR has no reviewed mark", async () => {
+      const { service, kv } = reRequested(null);
+      await service.refreshReviewQueue();
+      expect(kv.entries.get("head-seen:acme/api#15")).toEqual({
+        v: 1,
+        headOid: "def456",
+        seenAt: NOW,
+      });
+
+      kv.entries.delete("reviewed:acme/api#15");
+      await service.refreshReviewQueue();
+
+      expect(kv.entries.has("head-seen:acme/api#15")).toBe(false);
     });
 
     it("does not send for a request from before the mark", async () => {

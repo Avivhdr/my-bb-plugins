@@ -11,6 +11,7 @@ export const MAX_RUNNING_LIMIT = 10;
 export const DEFAULT_AUTO_REVIEW: AutoReviewSettings = { enabled: false, maxRunning: 3 };
 
 const SETTINGS_KEY = "auto-review";
+const WORKING_DAY_KEY = "working-day";
 const STARTED_PREFIX = "auto-review-started:";
 
 const storedSettingsSchema = z.object({
@@ -29,6 +30,21 @@ export function createAutoReviewSettings(kv: Pick<PluginKvStorage, "get" | "set"
 
     save: ({ enabled, maxRunning }: AutoReviewSettings) =>
       kv.set(SETTINGS_KEY, { v: 1, enabled, maxRunning }),
+  };
+}
+
+const workingDaySchema = z.object({ v: z.literal(1), day: z.string() });
+
+/** The local day "Working today" was switched on. Auto-review only acts on that day. */
+export function createWorkingDay(kv: Pick<PluginKvStorage, "get" | "set" | "delete">) {
+  return {
+    async get(): Promise<string | null> {
+      const entry = workingDaySchema.safeParse(await kv.get(WORKING_DAY_KEY));
+      return entry.success ? entry.data.day : null;
+    },
+
+    set: (day: string | null) =>
+      day === null ? kv.delete(WORKING_DAY_KEY) : kv.set(WORKING_DAY_KEY, { v: 1, day }),
   };
 }
 
@@ -67,14 +83,27 @@ export function isAutoReviewCandidate(pr: LinkedQueuePr): boolean {
   );
 }
 
+/** How long a PR head stays unchanged before auto-review re-reviews the new commits. */
+export const PUSH_SETTLE_MS = 15 * 60_000;
+
+/** What the last review of a PR saw, to tell whether something new asks for a re-review. */
+export interface ReReviewBasis {
+  /** The later of the reviewed mark and the last re-review. */
+  since: number;
+  /** The head that review or re-review looked at. */
+  reviewedHeadOid: string;
+  /** When a queue load first saw the PR's current head, or null if none has. */
+  headSeenAt: number | null;
+  now: number;
+}
+
 /**
  * Whether auto-review would send Re-review to this PR's idle review thread: the same layers and
- * filters as a first review, Re-review is due, and your review was requested again after
- * `since`, the later of the reviewed mark and the last re-review.
+ * filters as a first review, Re-review is due, and either your review was requested again after
+ * the last review, or the head moved since then and has not changed for `PUSH_SETTLE_MS`.
  */
-export function isAutoReReviewCandidate(pr: LinkedQueuePr, since: number): boolean {
-  const requestedAt = pr.activity?.lastRequestedAt ?? null;
-  return (
+export function isAutoReReviewCandidate(pr: LinkedQueuePr, basis: ReReviewBasis): boolean {
+  const eligible =
     pr.layer !== null &&
     AUTO_REVIEW_LAYERS.has(pr.layer) &&
     pr.state === "open" &&
@@ -82,9 +111,19 @@ export function isAutoReReviewCandidate(pr: LinkedQueuePr, since: number): boole
     pr.skipLabel === null &&
     pr.reReview &&
     pr.thread?.isReviewThread === true &&
-    pr.thread.status === "idle" &&
-    requestedAt !== null &&
-    Date.parse(requestedAt) > since
+    pr.thread.status === "idle";
+  if (!eligible) return false;
+  const requestedAt = pr.activity?.lastRequestedAt ?? null;
+  const requestedAgain = requestedAt !== null && Date.parse(requestedAt) > basis.since;
+  return requestedAgain || pushesSettled(pr.headOid, basis);
+}
+
+/** The head moved since the last review and has stayed put long enough to re-review. */
+export function pushesSettled(headOid: string, basis: Omit<ReReviewBasis, "since">): boolean {
+  return (
+    headOid !== basis.reviewedHeadOid &&
+    basis.headSeenAt !== null &&
+    basis.now - basis.headSeenAt >= PUSH_SETTLE_MS
   );
 }
 

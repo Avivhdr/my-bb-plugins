@@ -47,6 +47,8 @@ function view(layers: QueueLayer[], overrides: Partial<ReviewQueueView> = {}): R
     loadedAt: 1,
     hasUnseen: false,
     hasReturned: false,
+    autoReviewOn: false,
+    workingDay: null,
     ...overrides,
   };
 }
@@ -116,6 +118,17 @@ describe("reviewBadge", () => {
       unseen: false,
       returned: true,
     });
+  });
+
+  it("counts a finished review that Re-review replaces as waiting, not ready", () => {
+    const outdated = {
+      ...pr(thread("idle", "finished")),
+      reReview: true,
+    } as LinkedQueuePr;
+
+    expect(
+      reviewBadge(view([layer("Direct", [outdated, pr(thread("idle", "finished"))])])),
+    ).toEqual({ ...empty, waiting: "1", ready: 1 });
   });
 
   it("leaves the waiting count out when every PR has a review under way or ready", () => {

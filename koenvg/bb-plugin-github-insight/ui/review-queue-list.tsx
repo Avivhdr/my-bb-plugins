@@ -11,7 +11,7 @@ import type {
 } from "../contract";
 import { prKey, type PullRequestRef } from "../core/pr-ref";
 import { relativeTime } from "../core/relative-time";
-import { countedPrs, isReviewed } from "../core/review-queue-view";
+import { countedPrs, isReviewed, offersReReview } from "../core/review-queue-view";
 import type { CiState, PrState, QueuePr } from "../core/review-queue";
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ import { Avatar } from "./avatar";
 import { IconTooltip } from "./icon-tooltip";
 import { Notice, RefreshButton, RefreshError } from "./feedback";
 import { usePullRequestsNavigation } from "./pull-requests-routes";
+import { WorkingTodaySwitch } from "./working-today-switch";
 import { ACTION_CLASS, COUNT_CLASS, ICON_ACTION_CLASS, LABEL_CLASS } from "./queue-styles";
 import type { ReviewQueueState } from "./use-review-queue";
 import { SUCCESS_TEXT } from "./text-tones";
@@ -151,8 +152,9 @@ function countOf(section: QueueSection): number {
   return section.reduce((sum, group) => sum + group.prs.length, 0);
 }
 
+/** The agent state the row shows: none when Re-review takes its place. */
 function hasAgentState(pr: LinkedQueuePr, state: AgentState): boolean {
-  return pr.thread !== null && agentStateOf(pr.thread) === state;
+  return pr.thread !== null && !offersReReview(pr) && agentStateOf(pr.thread) === state;
 }
 
 function onlyAgentState(section: QueueSection, state: AgentState): QueueSection {
@@ -300,6 +302,7 @@ export function ReviewQueueLists({
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
             <AgentFilter section={waiting} active={agentFilter} onChange={setAgentFilter} />
             <div className="ml-auto flex shrink-0 items-center gap-1">
+              {view.autoReviewOn && <WorkingTodaySwitch workingDay={view.workingDay} />}
               {teammatesLayer !== undefined && (
                 <TeamPicker
                   team={view.teammatesTeam}
@@ -731,7 +734,6 @@ function QueueRow({
   const state = STATE_LABEL[pr.state];
   const draft = pr.draft && state === null;
   const selected = actions.selected(pr);
-  const skipped = pr.skipLabel !== null;
   return (
     <li
       aria-label={`${pr.repo}#${pr.number}`}
@@ -739,7 +741,6 @@ function QueueRow({
       className={cn(
         "flex min-w-0 items-center gap-1 pr-1.5 transition-colors duration-150 hover:bg-state-hover hover:duration-0",
         selected && "bg-state-hover",
-        skipped && "opacity-60",
       )}
     >
       <button
@@ -762,7 +763,7 @@ function QueueRow({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm font-medium",
-            (quiet || skipped) && "text-muted-foreground",
+            quiet && "text-muted-foreground",
           )}
           title={pr.title}
         >
@@ -775,14 +776,6 @@ function QueueRow({
           data-testid="queue-meta"
           className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
         >
-          {pr.skipLabel !== null && (
-            <span
-              data-testid="queue-skip-label"
-              className={cn(LABEL_CLASS, "border-attention/50 py-0 uppercase tracking-wide")}
-            >
-              {pr.skipLabel}
-            </span>
-          )}
           {state !== null && (
             <span className={cn(LABEL_CLASS, "flex items-center gap-1 py-0", state.className)}>
               <Icon name={state.icon} className="size-3" />
@@ -843,10 +836,7 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
   const reviewed = isReviewed(pr);
   const archiveThreadId = thread?.isReviewThread ? thread.id : null;
   // Re-review takes the place of an idle agent's status; "Open thread" moves to the menu.
-  const reReviewThread =
-    thread?.isReviewThread === true && pr.reReview && agentStateOf(thread) === "finished"
-      ? thread
-      : null;
+  const reReviewThread = thread !== null && offersReReview(pr) ? thread : null;
   return (
     <>
       {reReviewThread !== null ? (
@@ -860,7 +850,7 @@ function RowActions({ pr, actions }: { pr: LinkedQueuePr; actions: CardHandlers 
           }
           title={
             pr.autoReReview
-              ? "Your review was requested again. Auto-review sends the re-review when a review slot frees up. Click to send it now."
+              ? "Auto-review sends the re-review when a review slot frees up. Click to send it now."
               : "Send the new commits and replies to the review agent"
           }
           disabled={busy}
