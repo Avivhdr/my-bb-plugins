@@ -83,11 +83,6 @@ export interface WorkItem {
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-/** The repo's long-lived branch, as opposed to a feature branch. */
-export function isMainBranch(branch: string): boolean {
-  return branch === "main" || branch === "master";
-}
-
 export function workItems(thread: PluginSidebarThread): WorkItem[] {
   const items: WorkItem[] = [];
   if (thread.queuedWork === "failed")

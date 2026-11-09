@@ -206,7 +206,7 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
     expect(
       slot.getByRole("link", { name: "Grandchild" }).closest<HTMLElement>(".group\\/row")!.style
         .paddingLeft,
-    ).toBe("48px");
+    ).toBe("60px");
     fireEvent.click(slot.getByRole("button", { name: "Collapse Child" }));
     expect(slot.queryByRole("link", { name: "Grandchild" })).toBeNull();
     fireEvent.click(slot.getByRole("button", { name: "Expand Child" }));
@@ -459,7 +459,7 @@ describe("new attention in a selected In flight tree", () => {
 });
 
 describe("thread list slot", () => {
-  it("keeps a parent aligned with its siblings and indents its child under the parent title", () => {
+  it("nests rows under their group header and indents a child under the parent title", () => {
     const slot = mount([
       thread({ id: "parent", displayTitle: "Parent" }),
       thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
@@ -468,11 +468,12 @@ describe("thread list slot", () => {
     const row = (title: string) =>
       slot.getByRole("link", { name: title }).closest<HTMLElement>(".group\\/row")!;
     expect(row("Parent").style.paddingLeft).toBe(row("Sibling").style.paddingLeft);
-    expect(row("Child").style.paddingLeft).toBe("24px");
+    expect(row("Parent").style.paddingLeft).toBe("12px");
+    expect(row("Child").style.paddingLeft).toBe("36px");
     expect(
       slot
         .getByRole("button", { name: "Collapse Parent" })
-        .parentElement?.querySelector("[data-provider-glyph]"),
+        .parentElement?.querySelector("[data-attention-glyph]"),
     ).toBeTruthy();
   });
 
@@ -563,7 +564,7 @@ describe("thread list slot", () => {
     expect(slot.getByText("1 background agent", { selector: ".sr-only" })).toBeTruthy();
     expect(tip(slot, "Queued message waiting")).toBeTruthy();
   });
-  it("marks a running thread and shows its branch as an icon on one line", () => {
+  it("marks a running thread on one line without a branch icon", () => {
     const environment = {
       id: "e1",
       name: "Worktree",
@@ -579,13 +580,14 @@ describe("thread list slot", () => {
     expect(working.querySelector(".sr-only")?.textContent).toBe("Working");
     expect(working.textContent).toBe("Working");
     expect(slot.container.querySelector("time")).toBeNull();
-    expect(slot.getByText("On branch feature/sidebar", { selector: ".sr-only" })).toBeTruthy();
+    expect(slot.queryByText("On branch feature/sidebar", { selector: ".sr-only" })).toBeNull();
+    expect(slot.container.querySelector("[data-icon=GitBranch]")).toBeNull();
     const row = slot
       .getByRole("link", { name: "Prepare release" })
       .closest<HTMLElement>(".group\\/row")!;
     expect(row.style.height).toBe("32px");
   });
-  it("marks main with its own icon and gives a queued row a second line", () => {
+  it("shows no main icon and gives a queued row a second line", () => {
     const environment = {
       id: "e1",
       name: "Checkout",
@@ -597,7 +599,8 @@ describe("thread list slot", () => {
     };
     const slot = mount([thread({ environment, queuedWork: "waiting" })]);
     showTab(slot, "In flight");
-    expect(slot.getByText("On main", { selector: ".sr-only" })).toBeTruthy();
+    expect(slot.queryByText("On main", { selector: ".sr-only" })).toBeNull();
+    expect(slot.container.querySelector("[data-icon=Home]")).toBeNull();
     const row = slot
       .getByRole("link", { name: "Prepare release" })
       .closest<HTMLElement>(".group\\/row")!;
@@ -1223,7 +1226,7 @@ describe("thread list slot", () => {
     });
   });
 
-  it("keeps the provider logo and puts the lattice in the previous right-hand spinner slot", () => {
+  it("drops the provider logo and puts the lattice in the right-hand spinner slot", () => {
     const slot = mount([
       thread(),
       thread({
@@ -1237,13 +1240,14 @@ describe("thread list slot", () => {
     ]);
     showTab(slot, "In flight");
     const busy = slot.getByRole("link", { name: "Busy" }).closest<HTMLElement>(".group\\/row")!;
-    expect(slot.container.querySelectorAll("[data-provider-glyph]")).toHaveLength(2);
+    expect(slot.container.querySelector("[data-provider-glyph]")).toBeNull();
+    expect(slot.container.querySelectorAll("[data-attention-glyph]")).toHaveLength(2);
     const lattice = busy.querySelector("[data-running-glyph]")!;
     expect(lattice.getAttribute("aria-hidden")).toBe("true");
     expect(lattice.querySelectorAll("rect")).toHaveLength(9);
     expect(lattice.getAttribute("width")).toBe("12");
     expect(slot.getByTitle("Thread active").contains(lattice)).toBe(true);
-    expect(busy.querySelector("[data-provider-glyph] [data-running-glyph]")).toBeNull();
+    expect(busy.querySelector("[data-attention-glyph] [data-running-glyph]")).toBeNull();
     expect(busy.querySelector(".bg-primary")).toBeTruthy();
     expect(busy.querySelector("[data-icon=Spinner]")).toBeNull();
     expect(busy.textContent).toContain("Working");
@@ -1278,8 +1282,7 @@ describe("thread list slot", () => {
       thread({ status: "active", runtimeStatus: "active", indicator: "waiting-for-input" }),
     ]);
     expect(slot.container.querySelector("[data-running-glyph]")).toBeNull();
-    expect(slot.container.querySelector("[data-provider-glyph]")).toBeTruthy();
-    expect(slot.container.querySelector(".bg-destructive")).toBeTruthy();
+    expect(slot.container.querySelector("[data-attention-glyph] .bg-destructive")).toBeTruthy();
     expect(slot.getByTitle("Thread needs user input").textContent).toBe("Needs you");
   });
 
@@ -1296,7 +1299,6 @@ describe("thread list slot", () => {
       }),
     ]);
     showTab(slot, "In flight");
-    expect(slot.container.querySelector("[data-provider-glyph]")).toBeTruthy();
     expect(
       slot.getByTitle("Background work running").querySelector("[data-running-glyph]"),
     ).toBeTruthy();

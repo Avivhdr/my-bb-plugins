@@ -10,8 +10,6 @@ import {
 import {
   definePluginApp,
   experimental_Icon as Icon,
-  experimental_ProviderIcon as ProviderIcon,
-  experimental_useProviders,
   experimental_useSidebarThreads,
   experimental_useSidebarThreadSplit,
   useSdk,
@@ -24,7 +22,6 @@ import {
   type PluginSidebarThread,
   type PluginSidebarThreadRowStatus,
   type PluginThreadListProps,
-  type ExperimentalProviderIconProps,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { useThreadListActions, useThreadListNavigation } from "./sidebar-actions";
@@ -69,15 +66,9 @@ import {
 } from "./list-model";
 import type { Tab } from "./tabs";
 import { DEFAULT_PREFERENCES, readPreferences, savePreferences } from "./preferences";
-import {
-  isMainBranch,
-  isSettled,
-  needsAttention,
-  relativeTime,
-  rowState,
-  workItems,
-} from "./row-cues";
+import { isSettled, needsAttention, relativeTime, rowState, workItems } from "./row-cues";
 import { RunningGlyph } from "./running-glyph";
+import { NOW_SWITCHER_COMMAND, NowSwitcherOverlay, sharedListState } from "./now-switcher";
 import "./pinned-row.css";
 
 const OVERSCAN = 5;
@@ -93,39 +84,16 @@ function hasDetail(
   return pullRequest != null || rowStatus != null || workItems(thread).length > 0;
 }
 const CHILD_INDENT = 24;
+/** Every thread row sits under a group header; this nests it under the header's badge. */
+const ROW_INDENT = 12;
 
-type Provider = ExperimentalProviderIconProps["provider"] & { displayName?: string };
-
-function ProviderGlyph({
-  thread,
-  provider,
-  quiet,
-}: {
-  thread: PluginSidebarThread;
-  provider: Provider;
-  quiet: boolean;
-}) {
+/** The unread or needs-attention dot, in the column the expand chevron uses. */
+function AttentionDot({ thread }: { thread: PluginSidebarThread }) {
   const dot = needsAttention(thread) ? "bg-destructive" : thread.isUnread ? "bg-primary" : null;
   return (
-    <Tip
-      text={provider.displayName ?? provider.id}
-      className="z-10 row-start-1 flex size-4 items-center justify-center"
-    >
-      <span data-provider-glyph="" className="relative flex size-4 items-center justify-center">
-        <ProviderIcon
-          providerKind="agent"
-          provider={provider}
-          aria-hidden
-          className={`size-4 ${quiet ? "opacity-50" : ""}`}
-        />
-        {dot ? (
-          <span
-            aria-hidden
-            className={`absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-sidebar ${dot}`}
-          />
-        ) : null}
-      </span>
-    </Tip>
+    <span data-attention-glyph="" className="row-start-1 flex size-4 items-center justify-center">
+      {dot ? <span aria-hidden className={`size-2 rounded-full ${dot}`} /> : null}
+    </span>
   );
 }
 
@@ -212,21 +180,8 @@ function RowDetail({
   );
 }
 
-/** Home for main, a branch for anything else; hover for the branch name. */
-function BranchMark({ branch }: { branch: string | null | undefined }) {
-  if (!branch) return null;
-  const main = isMainBranch(branch);
-  return (
-    <Tip text={branch} className="z-10 inline-flex shrink-0 items-center text-muted-foreground">
-      <Icon name={main ? "Home" : "GitBranch"} className="size-3.5" aria-hidden />
-      <span className="sr-only">{main ? "On main" : `On branch ${branch}`}</span>
-    </Tip>
-  );
-}
-
 function ThreadRow({
   item,
-  provider,
   activeThreadId,
   now,
   onToggle,
@@ -242,7 +197,6 @@ function ThreadRow({
   parks,
   threads,
 }: {
-  provider: Provider;
   detailed: boolean;
   wakeAt: number | undefined;
   snoozes: SnoozeControls;
@@ -278,7 +232,7 @@ function ThreadRow({
       className={`group/row relative flex min-w-0 items-start ${item.context ? "opacity-60" : ""}`}
       style={{
         height: detailed ? HEIGHTS.detailedThread : HEIGHTS.thread,
-        paddingLeft: `${item.depth * CHILD_INDENT}px`,
+        paddingLeft: `${ROW_INDENT + item.depth * CHILD_INDENT}px`,
       }}
     >
       <div
@@ -290,7 +244,7 @@ function ThreadRow({
             <span
               className={`flex transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0 [@media(hover:none)]:opacity-0 ${item.collapsed ? "opacity-0" : ""}`}
             >
-              <ProviderGlyph thread={thread} provider={provider} quiet={quiet} />
+              <AttentionDot thread={thread} />
             </span>
             <button
               type="button"
@@ -307,10 +261,9 @@ function ThreadRow({
             </button>
           </span>
         ) : (
-          <ProviderGlyph thread={thread} provider={provider} quiet={quiet} />
+          <AttentionDot thread={thread} />
         )}
         <span className="col-start-2 row-start-1 flex min-w-0 items-center gap-1.5">
-          <BranchMark branch={thread.environment?.branchName} />
           <a
             {...splitProps}
             href={thread.href}
@@ -560,7 +513,6 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   const actions = useThreadListNavigation();
   const sdk = useSdk();
   const now = useNow();
-  const { providers } = experimental_useProviders();
   const insight = useSummaries();
   const rowStatuses = useSidebarThreadRowStatuses();
   const pullRequests = useMemo(
@@ -571,10 +523,6 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
         ),
       ),
     [insight.summaries, now],
-  );
-  const providerById = useMemo(
-    () => new Map<string, Provider>(providers.map((provider) => [provider.id, provider])),
-    [providers],
   );
   const pinned = useMemo(() => {
     const forest = buildForest(threads);
@@ -620,6 +568,12 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
       );
     }
   }, [placements, heldTree, followFrom, prefs.tab]);
+  // The Cmd+K switcher draws the Now tab from these same inputs.
+  useEffect(() => {
+    if (!insight.loaded) return;
+    sharedListState.set({ summaries: insight.summaries, prefs, heldTree });
+  }, [insight.loaded, insight.summaries, prefs, heldTree]);
+  useEffect(() => () => sharedListState.set(null), []);
   const items = useMemo(
     () =>
       visibleItems(
@@ -762,9 +716,6 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
                 <ThreadRow
                   key={item.id}
                   item={item}
-                  provider={
-                    providerById.get(item.thread.providerId) ?? { id: item.thread.providerId }
-                  }
                   activeThreadId={props.activeThreadId}
                   now={now}
                   onToggle={(id) => toggle("collapsedThreads", id)}
@@ -797,6 +748,11 @@ export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
     id: "snooze-state",
     component: () => <SnoozeOwner client={snoozeClient} />,
+  });
+  app.commands.register(NOW_SWITCHER_COMMAND);
+  app.slots.experimental_appOverlay({
+    id: "now-switcher",
+    component: () => <NowSwitcherOverlay client={snoozeClient} />,
   });
   app.slots.experimental_threadList({
     id: "pr-status",

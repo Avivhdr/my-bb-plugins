@@ -109,6 +109,19 @@ Commands work while this plugin's frontend is enabled even when another sidebar 
 
 Approval, answer, unread-error, and queued-send early wakes require an open frontend with this plugin enabled. The owner observes those signals even with the sidebar closed. Run completion, failure, and the minute deadline sweep use server handlers and work with no client open. The final eligibility check uses the latest observed frontend state; it is not an atomic server attention check.
 
+## Now switcher
+
+**Cmd+K** opens a window with the **Now** tab exactly as the sidebar draws it: the same groups, order, nesting, and collapsed groups and threads. The highlight starts on the thread you have open. Up and Down (or Ctrl+N and Ctrl+P) move it, Right expands a collapsed thread, Left collapses it or jumps to the parent, Enter opens the thread, and Escape closes the window. Expanding or collapsing here does not change the sidebar. Type to search. Every word you type must appear in the thread's title or its group name. A search also finds threads inside collapsed threads and groups and lists them flat under their group.
+
+The command is **Threads: Go to a thread in Now** (`plugin:pr-thread-list/now-switcher`), with a default of Cmd+K. bb's own thread search also uses Cmd+K, and bb leaves a plugin's conflicting default unbound. So move bb's search first:
+
+```sh
+bb settings keyboard set thread.search Mod+Shift+K
+bb settings keyboard set plugin:pr-thread-list/now-switcher Mod+k
+```
+
+The switcher reads the sidebar list's PR summaries, preferences and held tree (`sharedListState`). When this list is not the selected sidebar, it reads the summaries itself and the preferences from local storage, and shows "Loading threads…" until the summaries arrive.
+
 ## List preferences
 
 Open **List options** to group by project, machine, or custom section and to change the sort order. Group and parent-thread headers collapse their descendants. The top thread of a tree decides its group and its pin: a tree shows in the project, section, or machine of its top thread, and in **Pinned** only when the top thread is pinned. Pinned trees stay at the top of their tab. A child of a hidden or not loaded parent shows as a top-level row.
@@ -117,7 +130,7 @@ These choices, and the selected tab, are saved on this client under a versioned 
 
 ## Rows
 
-Each row starts with the agent's logo. A red dot on the logo means the thread needs you. A blue dot means it is unread. The top right shows what the thread does now (**Needs you**, **Failed**, **Not sent**, **Working**, **Planning**, **Draft**, and similar), or its age when it does nothing. Live states use a nine-cell spiral lattice in the original status spinner's position and size. Reduced-motion users see a static lattice. A pinned row has a red background, a metallic red edge that circles the row, and a light sheen that sweeps across it every few seconds. Reduced-motion users see the red background and a still edge.
+Thread rows sit 12px to the right of their group header, and each child level adds 24px. A row shows no agent logo and no branch icon. A red dot at its start means the thread needs you. A blue dot means it is unread. The top right shows what the thread does now (**Needs you**, **Failed**, **Not sent**, **Working**, **Planning**, **Draft**, and similar), or its age when it does nothing. Live states use a nine-cell spiral lattice in the original status spinner's position and size. Reduced-motion users see a static lattice. A pinned row has a red background, a metallic red edge that circles the row, and a light sheen that sweeps across it every few seconds. Reduced-motion users see the red background and a still edge.
 
 ## PR badges
 
@@ -134,7 +147,7 @@ An open PR in a merge queue shows its queue state instead of its blockers:
 
 A summary without `mergeQueue`, or with an invalid one, reads as not queued.
 
-The left of the second line shows queued messages and background work (workflows, agents, commands, plan mode, goals) as icons with counts. When there is none, it shows the branch. Clicking anywhere on the PR badge opens that row's thread and selects its PR tab in BB. Focus the badge and press Enter or Space for the same action. It does not open a browser tab; external GitHub links remain available inside the PR panel. Threads that share an environment show the same PR.
+The left of the second line shows queued messages and background work (workflows, agents, commands, plan mode, goals) as icons with counts. When there is none, it is empty. Clicking anywhere on the PR badge opens that row's thread and selects its PR tab in BB. Focus the badge and press Enter or Space for the same action. It does not open a browser tab; external GitHub links remain available inside the PR panel. Threads that share an environment show the same PR.
 
 There is no badge while the summaries load, when there is no PR, or when the summary is not usable. An open or draft PR summary older than one hour is not usable. A merged or closed PR summary stays usable at any age. No badge does not mean that checks passed or that a PR was closed.
 

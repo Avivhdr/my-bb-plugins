@@ -26,7 +26,8 @@ const app = await loadPluginApp(
       ...builder,
       commands: {
         register(command) {
-          commands.push(command);
+          // The Now switcher is not a snooze command; now-switcher.test.tsx covers it.
+          if (command.id !== "now-switcher") commands.push(command);
           builder.commands.register(command);
         },
       },

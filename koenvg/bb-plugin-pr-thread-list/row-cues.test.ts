@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PluginSidebarThread } from "@get-bb/plugin-sdk/app";
 import { thread } from "./fixtures";
-import {
-  describeIndicator,
-  isActive,
-  isMainBranch,
-  relativeTime,
-  rowState,
-  workItems,
-} from "./row-cues";
+import { describeIndicator, isActive, relativeTime, rowState, workItems } from "./row-cues";
 
 describe("thread indicator", () => {
   it("keeps the host's attention label and distinguishes runtime/queued state", () => {
@@ -155,14 +148,5 @@ describe("isActive", () => {
     ["is idle", {}, false],
   ])("a thread that %s is active: %s", (_name, overrides, active) => {
     expect(isActive(thread(overrides))).toBe(active);
-  });
-});
-
-describe("isMainBranch", () => {
-  it("treats main and master as main and everything else as a branch", () => {
-    expect(isMainBranch("main")).toBe(true);
-    expect(isMainBranch("master")).toBe(true);
-    expect(isMainBranch("bb/fix-login")).toBe(false);
-    expect(isMainBranch("maintenance")).toBe(false);
   });
 });
