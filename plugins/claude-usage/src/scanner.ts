@@ -1,11 +1,11 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { indexTranscript, mergeTranscript, needsRescan, type SpendIndex } from './spendIndex'
+import { indexTranscript, mergeTranscript, needsRescan, type SpendIndex, type TranscriptMeta } from './spendIndex'
 import {
   collapseToBilledResponses,
   isBillable,
   LineAssembler,
-  parseBilledResponse,
+  parseTranscriptEntry,
   type BilledResponse,
 } from './transcript'
 
@@ -25,6 +25,8 @@ export interface TranscriptFileSystem {
     chunkSizeBytes?: number
     signal?: AbortSignal
   }): AsyncIterable<string>
+  /** The last `bytes` of a file, or all of it when shorter. May start mid-line. */
+  readTextTail(request: { root: string; path: string; bytes: number }): Promise<string>
 }
 
 export interface TranscriptStat {
@@ -79,18 +81,27 @@ export async function listTranscripts(
   return found
 }
 
-async function readBilledResponses(
+interface TranscriptContents {
+  responses: BilledResponse[]
+  meta: TranscriptMeta & { pullRequests: string[] }
+}
+
+async function readTranscript(
   fs: TranscriptFileSystem,
   root: string,
   path: string,
   signal?: AbortSignal,
-): Promise<BilledResponse[]> {
+): Promise<TranscriptContents> {
   const assembler = new LineAssembler()
   const byMessageId = new Map<string, BilledResponse>()
+  const meta: TranscriptContents['meta'] = { title: null, pullRequests: [] }
   const absorb = (lines: string[]) => {
     for (const line of lines) {
-      const response = parseBilledResponse(line)
-      if (response && isBillable(response)) byMessageId.set(response.messageId, response)
+      const entry = parseTranscriptEntry(line)
+      if (!entry) continue
+      if (entry.kind === 'title') meta.title = entry.title
+      else if (entry.kind === 'pullRequest') meta.pullRequests.push(entry.url)
+      else if (isBillable(entry.response)) byMessageId.set(entry.response.messageId, entry.response)
     }
   }
   for await (const chunk of fs.readTextFileChunks({
@@ -102,7 +113,7 @@ async function readBilledResponses(
     absorb(assembler.push(chunk))
   }
   absorb(assembler.flush())
-  return collapseToBilledResponses(byMessageId.values())
+  return { responses: collapseToBilledResponses(byMessageId.values()), meta }
 }
 
 export async function scanTranscripts(request: {
@@ -123,17 +134,17 @@ export async function scanTranscripts(request: {
   for (const stat of transcripts) {
     signal?.throwIfAborted()
     if (!needsRescan(index, stat.path, stat)) continue
-    let responses: BilledResponse[]
+    let contents: TranscriptContents
     try {
-      responses = await readBilledResponses(fs, root, stat.path, signal)
+      contents = await readTranscript(fs, root, stat.path, signal)
     } catch (error) {
       if (signal?.aborted) throw error
       result.transcriptsFailed += 1
       continue
     }
-    mergeTranscript(index, stat.path, indexTranscript(responses, stat))
+    mergeTranscript(index, stat.path, indexTranscript(contents.responses, stat, contents.meta))
     result.readPaths.push(stat.path)
-    result.responsesIndexed += responses.length
+    result.responsesIndexed += contents.responses.length
   }
   return result
 }

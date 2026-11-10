@@ -56,6 +56,31 @@ describe('index store', () => {
     expect(loadSpendIndex(db).transcripts.has('pruned.jsonl')).toBe(true)
   })
 
+  it('round-trips the session summary and facets', () => {
+    const db = migratedDatabase()
+    const index = emptySpendIndex()
+    const responses = [
+      response({ messageId: 'm1', tokens: { input: 0, output: 1, cacheWrite5m: 300_000, cacheWrite1h: 0, cacheRead: 0 } }),
+      response({
+        messageId: 'm2',
+        timestamp: Date.parse('2026-08-27T09:45:00.000Z'),
+        tokens: { input: 0, output: 1, cacheWrite5m: 300_000, cacheWrite1h: 0, cacheRead: 0 },
+      }),
+    ]
+    mergeTranscript(
+      index,
+      'a.jsonl',
+      indexTranscript(responses, { sizeBytes: 10, modifiedAt: 1 }, { title: 'Fix it', pullRequests: ['https://x/pull/1'] }),
+    )
+
+    saveTranscripts(db, index, ['a.jsonl'])
+    const restored = loadSpendIndex(db).transcripts.get('a.jsonl')!
+
+    expect(restored.session).toEqual(index.transcripts.get('a.jsonl')!.session)
+    expect(restored.facets).toEqual(index.transcripts.get('a.jsonl')!.facets)
+    expect([...restored.facets.keys()].some((key) => key.endsWith('recache:15to60m'))).toBe(true)
+  })
+
   it('loads an empty index from an empty database', () => {
     expect(loadSpendIndex(migratedDatabase()).transcripts.size).toBe(0)
   })

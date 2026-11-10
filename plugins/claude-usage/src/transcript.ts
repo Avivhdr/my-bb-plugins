@@ -37,15 +37,50 @@ function readTokens(usage: RawUsage): TokenTotals {
   }
 }
 
-export function parseBilledResponse(line: string): BilledResponse | null {
+function parseRecord(line: string): Record<string, unknown> | null {
   const trimmed = line.trim()
   if (trimmed.length === 0) return null
-  let record: Record<string, unknown>
   try {
-    record = JSON.parse(trimmed) as Record<string, unknown>
+    const record = JSON.parse(trimmed) as unknown
+    return typeof record === 'object' && record !== null ? (record as Record<string, unknown>) : null
   } catch {
     return null
   }
+}
+
+export function parseBilledResponse(line: string): BilledResponse | null {
+  const record = parseRecord(line)
+  return record ? billedResponseOf(record) : null
+}
+
+/** Everything one transcript line can tell the scanner. */
+export type TranscriptEntry =
+  | { kind: 'response'; response: BilledResponse }
+  | { kind: 'title'; title: string }
+  | { kind: 'pullRequest'; url: string }
+
+/**
+ * Claude Code names a session with `ai-title` records, rewritten as the work
+ * changes, so the last one wins. `pr-link` records name each PR the session
+ * opened or pushed to.
+ */
+export function parseTranscriptEntry(line: string): TranscriptEntry | null {
+  const record = parseRecord(line)
+  if (!record) return null
+  if (record.type === 'ai-title') {
+    const title = typeof record.aiTitle === 'string' ? record.aiTitle.trim() : ''
+    return title.length > 0 ? { kind: 'title', title } : null
+  }
+  if (record.type === 'pr-link') {
+    return typeof record.prUrl === 'string' && record.prUrl.length > 0
+      ? { kind: 'pullRequest', url: record.prUrl }
+      : null
+  }
+  const response = billedResponseOf(record)
+  return response ? { kind: 'response', response } : null
+}
+
+function billedResponseOf(record: Record<string, unknown>): BilledResponse | null {
   const message = record.message as { id?: unknown; model?: unknown; usage?: unknown } | undefined
   if (!message || typeof message.usage !== 'object' || message.usage === null) return null
   if (typeof message.id !== 'string' || typeof message.model !== 'string') return null

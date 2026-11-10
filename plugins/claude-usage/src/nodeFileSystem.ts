@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { open, readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { TranscriptDirectoryEntry, TranscriptFileSystem } from './scanner'
 
@@ -43,5 +43,18 @@ export const nodeTranscriptFileSystem: TranscriptFileSystem = {
       signal,
     })
     for await (const chunk of stream) yield chunk as string
+  },
+
+  async readTextTail({ root, path, bytes }) {
+    const handle = await open(resolveInside(root, path), 'r')
+    try {
+      const { size } = await handle.stat()
+      const length = Math.min(size, bytes)
+      const buffer = Buffer.alloc(length)
+      await handle.read(buffer, 0, length, size - length)
+      return buffer.toString('utf8')
+    } finally {
+      await handle.close()
+    }
   },
 }

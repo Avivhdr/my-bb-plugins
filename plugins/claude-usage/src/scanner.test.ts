@@ -44,6 +44,7 @@ describe('listTranscripts', () => {
     const failing: TranscriptFileSystem = {
       readDir: (request) => (request.path === 'proj' ? Promise.reject(new Error('EACCES')) : fs.readDir(request)),
       readTextFileChunks: fs.readTextFileChunks,
+      readTextTail: fs.readTextTail,
     }
 
     expect(await listTranscripts(failing, ROOT)).toEqual([])
@@ -84,6 +85,41 @@ describe('scanTranscripts', () => {
     expect([...iterateRows(index)][0]!.tokens.output).toBe(206)
   })
 
+  it('keeps the last session title and every PR link', async () => {
+    const fs = fakeFileSystem({
+      'proj': null,
+      'proj/session.jsonl': [
+        JSON.stringify({ type: 'ai-title', aiTitle: 'First guess' }),
+        usageLine(),
+        JSON.stringify({ type: 'pr-link', prUrl: 'https://github.com/o/r/pull/9' }),
+        JSON.stringify({ type: 'ai-title', aiTitle: 'Fix the panel' }),
+      ].join('\n'),
+    })
+    const index = emptySpendIndex()
+
+    await scanTranscripts({ fs, root: ROOT, index })
+
+    expect(index.transcripts.get('proj/session.jsonl')!.session).toMatchObject({
+      title: 'Fix the panel',
+      pullRequests: ['https://github.com/o/r/pull/9'],
+    })
+  })
+
+  it('re-reads an unchanged transcript once when it was indexed without a session summary', async () => {
+    const content = usageLine()
+    const fs = fakeFileSystem({ 'proj': null, 'proj/session.jsonl': content })
+    const index = emptySpendIndex()
+    mergeTranscript(index, 'proj/session.jsonl', {
+      ...indexTranscript([], { sizeBytes: content.length, modifiedAt: 7 }),
+      session: null,
+    })
+
+    const result = await scanTranscripts({ fs, root: ROOT, index })
+
+    expect(result.readPaths).toEqual(['proj/session.jsonl'])
+    expect(index.transcripts.get('proj/session.jsonl')!.session).not.toBeNull()
+  })
+
   it('skips a transcript it has already read at the same size and mtime', async () => {
     const content = usageLine()
     const fs = fakeFileSystem({ 'proj': null, 'proj/session.jsonl': content })
@@ -109,6 +145,7 @@ describe('scanTranscripts', () => {
         if (request.path === 'proj/broken.jsonl') throw new Error('EACCES')
         return fs.readTextFileChunks(request)
       },
+      readTextTail: fs.readTextTail,
     }
     const index = emptySpendIndex()
 

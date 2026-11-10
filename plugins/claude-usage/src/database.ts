@@ -31,4 +31,30 @@ export const MIGRATIONS = [
     project_id TEXT NOT NULL,
     path TEXT NOT NULL
   )`,
+  `CREATE TABLE sessions (
+    path TEXT PRIMARY KEY,
+    title TEXT,
+    cwd TEXT,
+    model TEXT,
+    first_at REAL,
+    last_at REAL,
+    calls INTEGER NOT NULL,
+    peak_context INTEGER NOT NULL,
+    last_context INTEGER NOT NULL,
+    cache_ttl TEXT NOT NULL,
+    pull_requests TEXT NOT NULL
+  )`,
+  `CREATE TABLE facet_rows (
+    path TEXT NOT NULL,
+    utc_hour TEXT NOT NULL,
+    model TEXT NOT NULL,
+    facet TEXT NOT NULL,
+    calls INTEGER NOT NULL,
+    input INTEGER NOT NULL,
+    output INTEGER NOT NULL,
+    cache_write_5m INTEGER NOT NULL,
+    cache_write_1h INTEGER NOT NULL,
+    cache_read INTEGER NOT NULL,
+    PRIMARY KEY (path, utc_hour, model, facet)
+  )`,
 ]

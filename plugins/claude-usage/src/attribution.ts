@@ -1,7 +1,15 @@
 export interface AttributionSource {
   projects: Array<{ id: string; name: string; paths: string[] }>
   environments: Array<{ id: string; projectId: string; path: string }>
-  threads: Array<{ id: string; title: string; projectId: string; environmentId: string; providerId: string }>
+  threads: Array<{
+    id: string
+    title: string
+    projectId: string
+    environmentId: string
+    providerId: string
+    /** bb's own helper threads, never shown in the sidebar. */
+    hidden?: boolean
+  }>
 }
 
 export interface ThreadAttribution {
@@ -43,8 +51,10 @@ function normalizePath(path: string): string {
 /**
  * A directory names a thread only when one Claude Code thread is its sole
  * user: a project source path, or an environment several threads share, cannot
- * say which of them spent the money. Longest path first, so a worktree nested
- * inside a checkout resolves through its own thread.
+ * say which of them spent the money. A hidden helper thread beside one visible
+ * thread does not count against it, so its spend goes to the thread the user
+ * sees. Longest path first, so a worktree nested inside a checkout resolves
+ * through its own thread.
  */
 export function buildAttributionMap(source: AttributionSource): AttributionMap {
   const projectNames = new Map(source.projects.map((project) => [project.id, project.name]))
@@ -76,11 +86,13 @@ export function buildAttributionMap(source: AttributionSource): AttributionMap {
     const path = normalizePath(environment.path)
     if (sourcePaths.has(path)) continue
     const threads = threadsByEnvironment.get(environment.id) ?? []
+    const visible = threads.filter((thread) => !thread.hidden)
+    const owner = threads.length === 1 ? threads[0] : visible.length === 1 ? visible[0] : undefined
     directories.push({
       path,
       projectId: environment.projectId,
       projectName: nameOf(environment.projectId),
-      thread: threads.length === 1 ? threadsById.get(threads[0]!.id)! : null,
+      thread: owner ? threadsById.get(owner.id)! : null,
     })
   }
 

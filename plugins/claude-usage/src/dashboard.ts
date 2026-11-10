@@ -1,5 +1,6 @@
 import { attribute, type AttributionMap } from './attribution'
 import { DAILY_SERIES_DAYS } from './dailyChartConfig'
+import { buildInsights, type Insights } from './insights'
 import {
   addCost,
   addTokens,
@@ -45,7 +46,7 @@ export interface UnpricedModel {
   tokens: number
 }
 
-export interface SpendDashboardData {
+export interface SpendDashboardData extends Insights {
   generatedAt: number
   totals: { allTime: SpendFigure; last30Days: SpendFigure; last7Days: SpendFigure; today: SpendFigure }
   runRatePerDay: number
@@ -204,6 +205,7 @@ export function buildDashboard(
   const byDescendingTotal = (left: { total: number }, right: { total: number }) => right.total - left.total
 
   return {
+    ...buildInsights(index, attributionMap, thirtyDayStart),
     generatedAt: now,
     totals,
     runRatePerDay: totals.last7Days.total / 7,

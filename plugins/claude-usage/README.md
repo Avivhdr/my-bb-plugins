@@ -8,6 +8,22 @@ Prices the Claude Code transcripts on the BB server host and shows what they cos
 - Today's spend on that sidebar row.
 - The spend of the open thread in the thread header.
 - A banner that names any model the price table has no rate for.
+- A warning above a thread's composer when its next message will be expensive, with a button to compact the thread. See "Live session warnings".
+- Dashboard panels for the last 30 days: where the money went (with re-caching after a pause split out), cost per call by context size, and the most expensive sessions with their peak context, re-caching cost and PRs. A live table shows what the next message costs in the 10 most recent sessions.
+
+## Live session warnings
+
+Every call re-sends the whole conversation. While the prompt cache is warm the call reads it at a tenth of the input rate. After 5 minutes without a call (an hour for sessions on the one-hour cache) the cache is gone, and the next call writes the whole context again at 1.25 times the input rate. On a 600K-token Opus conversation that is about $3 before any work happens.
+
+The plugin reads the end of every transcript written in the last 30 days, at most every 10 seconds, and prices the next call both ways. Every thread with a session shows that price as one line above its composer. `src/advice.ts` raises it to one of three warnings:
+
+- Cold: the cache expired and re-caching costs $1 or more. Red banner.
+- Expiring: under 2 minutes of cache left on a re-cache of $1 or more.
+- Large: the context is 300K tokens or more.
+
+A thread that is mid-turn is never called cold, since nobody can reply to save the cache. Warnings only reach threads Claude Code runs alone in their environment, the same rule as thread attribution.
+
+The scanner tags a call as re-caching when it comes more than 5 minutes after the previous call and writes at least half its context to the cache. Those tags, and calls per context size, live in `facet_rows`. Session titles, peak context and PR links live in `sessions`. A transcript indexed before these tables existed is re-read once if it is still on disk.
 
 ## How the numbers are produced
 

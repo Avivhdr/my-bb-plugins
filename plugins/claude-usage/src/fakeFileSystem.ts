@@ -35,5 +35,10 @@ export function fakeFileSystem(tree: Record<string, string | null>): TranscriptF
         for (let offset = 0; offset < content.length; offset += 16) yield content.slice(offset, offset + 16)
       })()
     },
+    async readTextTail({ path, bytes }) {
+      const content = tree[path]
+      if (typeof content !== 'string') throw new Error(`no such transcript: ${path}`)
+      return content.slice(Math.max(0, content.length - bytes))
+    },
   }
 }

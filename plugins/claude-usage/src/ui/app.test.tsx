@@ -2,7 +2,12 @@
 import { cleanup } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { loadPluginApp, renderSlot, type CapturedPluginApp } from "@get-bb/plugin-sdk/testing/app";
+import {
+  loadPluginApp,
+  renderSlot,
+  type CapturedPluginApp,
+} from "@get-bb/plugin-sdk/testing/app";
+import type { LiveSession } from "../advice";
 import type { DashboardResult } from "../spendService";
 import { buildAttributionMap } from "../attribution";
 import { buildDashboard } from "../dashboard";
@@ -76,9 +81,13 @@ describe("Claude usage page", () => {
     expect(await slot.findByText("Last 30 days")).toBeTruthy();
     expect(slot.getAllByText("$50.00").length).toBeGreaterThan(0);
     expect(slot.getByLabelText("Daily spend from Jul 29 to Aug 27")).toBeTruthy();
-    expect(slot.getAllByText("frontend")).toHaveLength(2);
-    expect(slot.getByText("Outside BB")).toBeTruthy();
-    expect(slot.getByText("Fix the panel")).toBeTruthy();
+    // Projects, top threads, and the session table each name the project.
+    expect(slot.getAllByText("frontend")).toHaveLength(3);
+    expect(slot.getAllByText("Outside BB")).toHaveLength(2);
+    expect(slot.getAllByText("Fix the panel").length).toBeGreaterThan(0);
+    expect(slot.getByText("Where the money went")).toBeTruthy();
+    expect(slot.getByText("Cost per call by context size")).toBeTruthy();
+    expect(slot.getByText("Most expensive sessions")).toBeTruthy();
     expect(slot.getByText("claude-opus-5")).toBeTruthy();
     expect(slot.getByText(/Every figure is a lower bound/)).toBeTruthy();
   });
@@ -190,5 +199,126 @@ describe("thread header", () => {
     });
 
     expect(await slot.findByText("$0.00")).toBeTruthy();
+  });
+});
+
+function liveSession(overrides: Partial<LiveSession> = {}): LiveSession {
+  return {
+    path: "proj/s.jsonl",
+    title: "Fix the panel",
+    threadId: "thr_1",
+    threadTitle: "Fix the panel",
+    projectName: "frontend",
+    model: "claude-opus-5",
+    lastAt: Date.now() - 12 * 60_000,
+    context: 600_000,
+    cacheTtl: "5m",
+    recacheCost: 3.75,
+    warmCallCost: 0.3,
+    summaryOutputCost: 0.2,
+    compactedCallCost: 0.015,
+    ...overrides,
+  };
+}
+
+describe("composer banner", () => {
+  const banner = () => app.composerCustomizations[0]!.banners![0]!;
+  const render = (sessions: LiveSession[]) =>
+    renderSlot(banner(), {}, {
+      composer: { scope: { kind: "thread", threadId: "thr_1" } },
+      rpc: { liveSessions: () => ({ generatedAt: Date.now(), sessions }) },
+    });
+
+  it("warns that the next message re-caches an expired conversation", async () => {
+    const slot = render([liveSession()]);
+
+    expect(await slot.findByText("Your next message re-sends 600K tokens, about $3.75")).toBeTruthy();
+  });
+
+  it("shows a small session's next-message cost as one quiet line", async () => {
+    const slot = render([liveSession({ context: 30_000, recacheCost: 0.19, warmCallCost: 0.02 })]);
+
+    expect(
+      await slot.findByText("Next message about $0.19: the cache expired 7 min ago · 30K tokens of context"),
+    ).toBeTruthy();
+  });
+
+  it("stays empty for a thread with no session", async () => {
+    const slot = render([liveSession({ threadId: "thr_2", path: "proj/other.jsonl" })]);
+    await act(async () => {});
+
+    expect(slot.container.textContent).toBe("");
+  });
+
+  it("compacts the thread from the banner and stops offering it while bb works", async () => {
+    const compact = vi.fn(async () => ({ ok: true as const }));
+    const slot = renderSlot(banner(), {}, {
+      composer: { scope: { kind: "thread", threadId: "thr_1" } },
+      rpc: { liveSessions: () => ({ generatedAt: Date.now(), sessions: [liveSession()] }) },
+      sdk: { threads: { compact } },
+    });
+    // Cold: one re-cache ($3.75) plus the summary ($0.20).
+    const button = await slot.findByRole("button", { name: "Compact now · ~$3.95" });
+
+    await act(async () => button.click());
+
+    expect(compact).toHaveBeenCalledWith({ threadId: "thr_1" });
+    expect(await slot.findByText(/Compacting\. The new size shows/)).toBeTruthy();
+    expect(slot.queryByRole("button", { name: /Compact now/ })).toBeNull();
+  });
+
+  it("compacts first, then sends the draft, when the cache has expired", async () => {
+    const send = vi.fn(async () => ({ ok: true as const, delivery: "sent" as const }));
+    const slot = renderSlot(banner(), {}, {
+      composer: { scope: { kind: "thread", threadId: "thr_1" }, text: "Now fix the header" },
+      rpc: { liveSessions: () => ({ generatedAt: Date.now(), sessions: [liveSession({ lastAt: Date.now() - 20 * 60_000 })] }) },
+      sdk: { threads: { send } },
+    });
+    const button = await slot.findByRole("button", { name: "Compact, then send" });
+
+    await act(async () => button.click());
+
+    expect(send).toHaveBeenCalledWith({
+      threadId: "thr_1",
+      mode: "start",
+      input: [{ type: "text", text: "Now fix the header", mentions: [] }],
+      compactFirst: true,
+    });
+  });
+
+  it("offers compaction while the cache is warm at its warm price", async () => {
+    const slot = render([liveSession({ lastAt: Date.now() - 60_000 })]);
+
+    expect(await slot.findByRole("button", { name: "Compact now · ~$0.50" })).toBeTruthy();
+    // Nothing typed, so there is nothing to send after compacting.
+    expect(slot.queryByRole("button", { name: "Compact, then send" })).toBeNull();
+  });
+
+  it("offers to compact, then send a draft while the cache is still warm", async () => {
+    const slot = renderSlot(banner(), {}, {
+      composer: { scope: { kind: "thread", threadId: "thr_1" }, text: "Next step" },
+      rpc: { liveSessions: () => ({ generatedAt: Date.now(), sessions: [liveSession({ lastAt: Date.now() - 60_000 })] }) },
+    });
+
+    expect(await slot.findByRole("button", { name: "Compact, then send" })).toBeTruthy();
+  });
+
+  it("prices the next 10 messages as they stand and after compacting", async () => {
+    const slot = render([liveSession()]);
+
+    // As is: $3.75 re-cache + 100 steps at $0.30. Compacted: $3.95 + $0.19 + 100 steps at $0.015.
+    expect((await slot.findByText(/Next 10 messages:/)).textContent).toBe(
+      "Next 10 messages: ~$33.75 (~$5.64 if you compact now →)",
+    );
+    expect(slot.getByRole("button", { name: "Why this costs money" })).toBeTruthy();
+  });
+
+  it("hides once dismissed", async () => {
+    const slot = render([liveSession({ threadId: "thr_1" })]);
+    const dismiss = await slot.findByRole("button", { name: "Dismiss" });
+
+    await act(async () => dismiss.click());
+
+    expect(slot.queryByRole("status")).toBeNull();
   });
 });

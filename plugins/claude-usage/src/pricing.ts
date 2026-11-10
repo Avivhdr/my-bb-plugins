@@ -67,6 +67,11 @@ export function addTokens(target: TokenTotals, addend: TokenTotals): TokenTotals
   }
 }
 
+/** The prompt a call sent: everything except what it generated. */
+export function contextTokens(tokens: TokenTotals): number {
+  return tokens.input + tokens.cacheWrite5m + tokens.cacheWrite1h + tokens.cacheRead
+}
+
 export function totalTokenCount(tokens: TokenTotals): number {
   return tokens.input + tokens.output + tokens.cacheWrite5m + tokens.cacheWrite1h + tokens.cacheRead
 }

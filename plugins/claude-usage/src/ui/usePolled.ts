@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 export const POLL_MS = 60_000;
 
 /** The backend rescans on its own interval, so an open view re-reads or it shows what was true at mount. */
-export function usePolled<T>(load: () => Promise<T>) {
+export function usePolled<T>(load: () => Promise<T>, intervalMs = POLL_MS) {
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
@@ -16,8 +16,8 @@ export function usePolled<T>(load: () => Promise<T>) {
   }, [load]);
   useEffect(() => {
     void refresh();
-    const poll = setInterval(() => void refresh(), POLL_MS);
+    const poll = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(poll);
-  }, [refresh]);
+  }, [refresh, intervalMs]);
   return { value, error, refresh };
 }

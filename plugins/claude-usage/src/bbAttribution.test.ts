@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { loadAttributionSource, type AttributionSdk } from './bbAttribution'
+import { loadAttributionSource, loadSessionOwners, type AttributionSdk, type SessionSdk } from './bbAttribution'
 
 type ThreadRow = Awaited<ReturnType<AttributionSdk['threads']['list']>>[number]
 
@@ -60,6 +60,18 @@ describe('loadAttributionSource', () => {
     expect(list).toHaveBeenCalledWith({ includePersonal: true })
   })
 
+  it('lists a thread once when both pages return it, and marks hidden threads', async () => {
+    const archived = thread({ id: 'thr_old', environmentId: 'E-1' })
+    const source = await loadAttributionSource(
+      sdk({ active: [archived, thread({ id: 'thr_helper', visibility: 'hidden' })], archived: [archived] }),
+    )
+
+    expect(source.threads.map(({ id, hidden }) => ({ id, hidden }))).toEqual([
+      { id: 'thr_old', hidden: false },
+      { id: 'thr_helper', hidden: true },
+    ])
+  })
+
   it('includes archived threads, so their spend keeps its thread', async () => {
     const source = await loadAttributionSource(
       sdk({ active: [thread({ id: 'thr_live' })], archived: [thread({ id: 'thr_old', environmentId: 'E-2' })] }),
@@ -88,5 +100,63 @@ describe('loadAttributionSource', () => {
     const source = await loadAttributionSource(sdk({ active: [thread({ title: null, titleFallback: 'Draft prompt' })] }))
 
     expect(source.threads[0]!.title).toBe('Draft prompt')
+  })
+})
+
+describe('loadSessionOwners', () => {
+  it('maps every session a live Claude Code thread had to it, newest as current, and skips archived threads', async () => {
+    const identities: Record<string, string[]> = {
+      thr_bot: ['bot-now', 'bot-now', 'bot-old'],
+      thr_old: ['old-session'],
+    }
+    const list = vi.fn(async ({ threadId }: { threadId: string }) =>
+      (identities[threadId] ?? []).map((providerThreadId, seq) => ({ seq, data: { providerThreadId } })),
+    )
+    const sdk: SessionSdk = {
+      threads: {
+        list: async ({ offset = 0 } = {}) =>
+          offset
+            ? []
+            : [
+                { id: 'thr_bot', providerId: 'claude-code', archivedAt: null },
+                { id: 'thr_old', providerId: 'claude-code', archivedAt: 5 },
+                { id: 'thr_codex', providerId: 'codex', archivedAt: null },
+              ],
+        events: { list },
+      },
+    }
+
+    const owners = await loadSessionOwners(sdk)
+
+    expect([...owners.currentOf]).toEqual([['thr_bot', 'bot-now']])
+    expect([...owners.ownerOf]).toEqual([
+      ['bot-now', 'thr_bot'],
+      ['bot-old', 'thr_bot'],
+    ])
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('loadSessionOwners paging', () => {
+  it('pages back through more identity events than one request returns', async () => {
+    const seqs = Array.from({ length: 150 }, (_, position) => 150 - position)
+    const list = vi.fn(async ({ beforeSeq }: { beforeSeq?: string }) =>
+      seqs
+        .filter((seq) => beforeSeq === undefined || seq < Number(beforeSeq))
+        .slice(0, 100)
+        .map((seq) => ({ seq, data: { providerThreadId: seq === 1 ? 'first' : 'now' } })),
+    )
+    const sdk: SessionSdk = {
+      threads: {
+        list: async ({ offset = 0 } = {}) => (offset ? [] : [{ id: 'thr_bot', providerId: 'claude-code' }]),
+        events: { list },
+      },
+    }
+
+    const owners = await loadSessionOwners(sdk)
+
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(owners.ownerOf.get('first')).toBe('thr_bot')
+    expect(owners.currentOf.get('thr_bot')).toBe('now')
   })
 })

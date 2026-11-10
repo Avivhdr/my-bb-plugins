@@ -1,4 +1,5 @@
 import { addTokens, type TokenTotals } from './pricing'
+import { analyzeSession, type FacetTotals, type SessionSummary } from './sessionAnalysis'
 import type { BilledResponse } from './transcript'
 
 export interface IndexedTranscript {
@@ -6,6 +7,19 @@ export interface IndexedTranscript {
   modifiedAt: number | null
   /** Keyed by `${cwd}\n${utcHour}\n${model}`. */
   rows: Map<string, TokenTotals>
+  /**
+   * Null for a transcript indexed before the plugin kept session summaries. A
+   * file still on disk is re-read once to fill it; a pruned one keeps its
+   * totals and simply has no session detail.
+   */
+  session: SessionSummary | null
+  /** Keyed by `${utcHour}\n${model}\n${facet}`, see `facetKey`. */
+  facets: Map<string, FacetTotals>
+}
+
+export interface TranscriptMeta {
+  title?: string | null
+  pullRequests?: Iterable<string>
 }
 
 export interface SpendIndex {
@@ -48,14 +62,17 @@ export function parseRowKey(key: string): { cwd: string; utcHour: string; model:
 export function indexTranscript(
   responses: Iterable<BilledResponse>,
   stat: { sizeBytes: number; modifiedAt: number | null },
+  meta: TranscriptMeta = {},
 ): IndexedTranscript {
+  const all = [...responses]
   const rows = new Map<string, TokenTotals>()
-  for (const response of responses) {
+  for (const response of all) {
     const key = rowKey(response.cwd, utcHourOf(response.timestamp), response.model)
     const existing = rows.get(key)
     rows.set(key, existing ? addTokens(existing, response.tokens) : response.tokens)
   }
-  return { sizeBytes: stat.sizeBytes, modifiedAt: stat.modifiedAt, rows }
+  const { session, facets } = analyzeSession(all, meta)
+  return { sizeBytes: stat.sizeBytes, modifiedAt: stat.modifiedAt, rows, session, facets }
 }
 
 /**
@@ -73,7 +90,7 @@ export function needsRescan(
   stat: { sizeBytes: number; modifiedAt: number | null },
 ): boolean {
   const indexed = index.transcripts.get(path)
-  if (!indexed) return true
+  if (!indexed || indexed.session === null) return true
   return indexed.sizeBytes !== stat.sizeBytes || indexed.modifiedAt !== stat.modifiedAt
 }
 

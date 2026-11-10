@@ -14,6 +14,7 @@ const map = buildAttributionMap({
     { id: 'E-shared', projectId: 'P-1', path: `${WORKTREES}/thr_c-1/frontend` },
     { id: 'E-local', projectId: 'P-2', path: '/Users/dev/code/backend' },
     { id: 'E-codex', projectId: 'P-2', path: `${WORKTREES}/thr_e-1/backend` },
+    { id: 'E-helper', projectId: 'P-1', path: `${WORKTREES}/thr_f-1/frontend` },
   ],
   threads: [
     { id: 'thr_a', title: 'Fix the flashing panel', projectId: 'P-1', environmentId: 'E-worktree', providerId: 'claude-code' },
@@ -22,6 +23,8 @@ const map = buildAttributionMap({
     { id: 'thr_c2', title: 'Second in shared', projectId: 'P-1', environmentId: 'E-shared', providerId: 'claude-code' },
     { id: 'thr_d', title: 'Runs in place', projectId: 'P-2', environmentId: 'E-local', providerId: 'claude-code' },
     { id: 'thr_e', title: 'Codex thread', projectId: 'P-2', environmentId: 'E-codex', providerId: 'codex' },
+    { id: 'thr_f', title: 'Has a helper', projectId: 'P-1', environmentId: 'E-helper', providerId: 'claude-code' },
+    { id: 'thr_f2', title: '', projectId: 'P-1', environmentId: 'E-helper', providerId: 'claude-code', hidden: true },
   ],
 })
 
@@ -46,6 +49,10 @@ describe('attribute', () => {
 
   it('counts an environment shared by two threads for the project only', () => {
     expect(attribute(map, `${WORKTREES}/thr_c-1/frontend`)).toEqual({ project: FRONTEND, thread: null })
+  })
+
+  it('gives a shared environment to its one visible thread when the others are hidden helpers', () => {
+    expect(attribute(map, `${WORKTREES}/thr_f-1/frontend`).thread?.threadId).toBe('thr_f')
   })
 
   it('counts a project source directory for the project only, even with one thread running in it', () => {

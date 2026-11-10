@@ -7,6 +7,8 @@ import { CHART_SERIES, dailyWindow } from "../dailyChartConfig";
 import { formatDayLabel, formatMoney, formatShare, formatTokens } from "../format";
 import type { Dashboard, rpcContract } from "../rpc";
 import { DailySpendChart } from "./DailySpendChart";
+import { ContextBandPanel, LivePanel, SessionsPanel, SplitPanel } from "./InsightPanels";
+import { Panel } from "./Panel";
 import { usePolled } from "./usePolled";
 
 type Figure = Dashboard["totals"]["today"];
@@ -14,18 +16,6 @@ type Figure = Dashboard["totals"]["today"];
 function tokenCount(figure: Figure): number {
   const t = figure.tokens;
   return t.input + t.output + t.cacheWrite5m + t.cacheWrite1h + t.cacheRead;
-}
-
-function Panel({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-baseline justify-between gap-4">
-        <h3 className="m-0 text-sm font-semibold">{title}</h3>
-        {aside ? <div className="flex items-center gap-2 text-xs text-muted-foreground">{aside}</div> : null}
-      </div>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
 }
 
 function StatusBox({ children }: { children: ReactNode }) {
@@ -221,12 +211,18 @@ function DashboardBody({ dashboard }: { dashboard: Dashboard }) {
     <>
       {dashboard.unpricedModels.length > 0 ? <UnpricedBanner models={dashboard.unpricedModels} /> : null}
       <Totals dashboard={dashboard} />
+      <LivePanel />
+      <SplitPanel dashboard={dashboard} />
       <DailyPanel dashboard={dashboard} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ContextBandPanel dashboard={dashboard} />
         <ProjectsPanel dashboard={dashboard} />
-        <ThreadsPanel dashboard={dashboard} />
       </div>
-      <ModelsPanel dashboard={dashboard} />
+      <SessionsPanel dashboard={dashboard} />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <ThreadsPanel dashboard={dashboard} />
+        <ModelsPanel dashboard={dashboard} />
+      </div>
       <p className="m-0 text-xs text-muted-foreground">
         Every figure is a lower bound: Claude Code transcripts leave out some billed usage, so actual spend can be
         higher. Priced at Anthropic list rates. Claude Code prunes transcripts after about a month; history already

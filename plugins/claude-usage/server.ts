@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { loadAttributionSource } from "./src/bbAttribution";
+import { loadAttributionSource, loadSessionOwners } from "./src/bbAttribution";
 import { MIGRATIONS } from "./src/database";
 import { withRememberedEnvironments } from "./src/environmentStore";
 import { nodeTranscriptFileSystem } from "./src/nodeFileSystem";
@@ -25,6 +25,7 @@ export default async function plugin(bb: BbPluginApi) {
     root: resolveTranscriptRoot(),
     loadAttributionSource: async () =>
       withRememberedEnvironments(db, await loadAttributionSource(bb.sdk)),
+    loadSessionOwners: () => loadSessionOwners(bb.sdk),
     now: () => Date.now(),
     onError,
   });

@@ -1,4 +1,5 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
+import { LiveAdviceBanner } from "./src/ui/LiveAdviceBanner";
 import { SidebarSpend } from "./src/ui/SidebarSpend";
 import { SpendDashboard } from "./src/ui/SpendDashboard";
 import { ThreadSpend } from "./src/ui/ThreadSpend";
@@ -16,5 +17,10 @@ export default definePluginApp((app) => {
     id: "thread-spend",
     title: "Claude Code spend",
     component: ThreadSpend,
+  });
+  app.composer.customize({
+    id: "session-cost",
+    scopes: ["thread"],
+    banners: [{ id: "session-cost", chrome: "bare", component: LiveAdviceBanner }],
   });
 });

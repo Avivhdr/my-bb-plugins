@@ -26,6 +26,24 @@ const scopeSpend = z.object({
   total: z.number(),
 })
 
+const recacheByGap = z.object({ '5to15m': z.number(), '15to60m': z.number(), over60m: z.number() })
+
+const liveSession = z.object({
+  path: z.string(),
+  title: z.string().nullable(),
+  threadId: z.string().nullable(),
+  threadTitle: z.string().nullable(),
+  projectName: z.string().nullable(),
+  model: z.string(),
+  lastAt: z.number(),
+  context: z.number(),
+  cacheTtl: z.enum(['5m', '1h']),
+  recacheCost: z.number(),
+  warmCallCost: z.number(),
+  summaryOutputCost: z.number(),
+  compactedCallCost: z.number(),
+})
+
 const dashboard = z.object({
   generatedAt: z.number(),
   indexing: z.boolean(),
@@ -45,9 +63,42 @@ const dashboard = z.object({
   transcriptCount: z.number(),
   earliestDay: z.string().nullable(),
   latestDay: z.string().nullable(),
+  split: z.object({
+    total: z.number(),
+    recache: z.number(),
+    recacheByGap,
+    otherCacheWrite: z.number(),
+    cacheRead: z.number(),
+    output: z.number(),
+    input: z.number(),
+  }),
+  byContextBand: z.array(
+    z.object({
+      band: z.enum(['under100k', '100kTo250k', '250kTo500k', 'over500k']),
+      total: z.number(),
+      calls: z.number(),
+    }),
+  ),
+  topSessions: z.array(
+    z.object({
+      key: z.string(),
+      title: z.string(),
+      threadTitle: z.string().nullable(),
+      projectName: z.string().nullable(),
+      total: z.number(),
+      calls: z.number(),
+      peakContext: z.number(),
+      recache: z.number(),
+      lastAt: z.number().nullable(),
+      pullRequests: z.array(z.string()),
+    }),
+  ),
 })
 
 export type Dashboard = z.infer<typeof dashboard>
+export type LiveSessions = z.infer<typeof liveSessions>
+
+const liveSessions = z.object({ generatedAt: z.number(), sessions: z.array(liveSession) })
 
 export const rpcContract = defineRpcContract({
   dashboard: { input: z.null(), output: dashboard },
@@ -55,6 +106,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: z.string().min(1) }).strict(),
     output: z.object({ threadId: z.string(), found: z.boolean(), total: z.number() }),
   },
+  liveSessions: { input: z.null(), output: liveSessions },
   rescan: {
     input: z.null(),
     output: z.object({ transcriptsSeen: z.number(), transcriptsRead: z.number(), transcriptsFailed: z.number() }),
@@ -65,6 +117,7 @@ export function createRpcHandlers(service: SpendService) {
   return {
     dashboard: () => service.getDashboard(),
     threadSpend: ({ threadId }: { threadId: string }) => service.getThreadSpend(threadId),
+    liveSessions: () => service.getLiveSessions(),
     rescan: async () => {
       const result = await service.refresh()
       return {

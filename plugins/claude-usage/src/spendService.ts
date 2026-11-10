@@ -1,11 +1,16 @@
+import type { LiveSession } from './advice'
 import { buildAttributionMap, type AttributionMap, type AttributionSource } from './attribution'
 import { buildDashboard, buildThreadSpend, type SpendDashboardData, type ThreadSpendData } from './dashboard'
 import type { SqlDatabase } from './database'
 import { loadSpendIndex, saveTranscripts } from './indexStore'
-import { scanTranscripts, type ScanResult, type TranscriptFileSystem } from './scanner'
+import type { SessionOwners } from './bbAttribution'
+import { buildLiveSessions, createLiveTracker } from './live'
+import { listTranscripts, scanTranscripts, type ScanResult, type TranscriptFileSystem } from './scanner'
 import type { SpendIndex } from './spendIndex'
 
 const ATTRIBUTION_TTL_MS = 30_000
+/** Every open bb window polls; one tail pass serves all of them for this long. */
+const LIVE_REFRESH_MS = 10_000
 const EMPTY_SOURCE: AttributionSource = { projects: [], environments: [], threads: [] }
 
 export interface SpendServiceDependencies {
@@ -13,6 +18,8 @@ export interface SpendServiceDependencies {
   fs: TranscriptFileSystem
   root: string
   loadAttributionSource(): Promise<AttributionSource>
+  /** Which session each thread is on; without it, live sessions match threads by directory alone. */
+  loadSessionOwners?(): Promise<SessionOwners>
   now(): number
   onError?(message: string, error: unknown): void
 }
@@ -25,6 +32,7 @@ export interface SpendService {
   refresh(signal?: AbortSignal): Promise<ScanResult>
   getDashboard(): Promise<DashboardResult>
   getThreadSpend(threadId: string): Promise<ThreadSpendData>
+  getLiveSessions(): Promise<{ generatedAt: number; sessions: LiveSession[] }>
 }
 
 export function createSpendService(dependencies: SpendServiceDependencies): SpendService {
@@ -33,6 +41,48 @@ export function createSpendService(dependencies: SpendServiceDependencies): Spen
   let queue: Promise<unknown> = Promise.resolve()
   let attributionMap: AttributionMap | null = null
   let attributionLoadedAt = 0
+  let sessionOwners: SessionOwners | null = null
+  let sessionOwnersLoadedAt = -Infinity
+  const live = createLiveTracker()
+  let liveRefreshedAt = -Infinity
+  let liveRefresh: Promise<void> | null = null
+
+  /** Concurrent callers share one pass instead of each reading every tail. */
+  function refreshLive(): Promise<void> {
+    if (dependencies.now() - liveRefreshedAt < LIVE_REFRESH_MS) return Promise.resolve()
+    liveRefresh ??= (async () => {
+      try {
+        const transcripts = await listTranscripts(dependencies.fs, dependencies.root)
+        await live.refresh(dependencies.fs, dependencies.root, transcripts, dependencies.now(), dependencies.onError)
+        liveRefreshedAt = dependencies.now()
+      } finally {
+        liveRefresh = null
+      }
+    })()
+    return liveRefresh
+  }
+
+  async function currentSessionOwners(): Promise<SessionOwners | null> {
+    const load = dependencies.loadSessionOwners
+    if (!load) return null
+    const now = dependencies.now()
+    if (now - sessionOwnersLoadedAt < ATTRIBUTION_TTL_MS) return sessionOwners
+    try {
+      sessionOwners = await load()
+      sessionOwnersLoadedAt = now
+    } catch (error) {
+      dependencies.onError?.('failed to read thread sessions', error)
+    }
+    return sessionOwners
+  }
+
+  function indexedTitles(): Map<string, string> {
+    const titles = new Map<string, string>()
+    for (const [path, transcript] of index.transcripts) {
+      if (transcript.session?.title) titles.set(path, transcript.session.title)
+    }
+    return titles
+  }
 
   /**
    * Scans a copy and swaps it in only after the rows are stored: a transcript
@@ -73,6 +123,18 @@ export function createSpendService(dependencies: SpendServiceDependencies): Spen
     },
     async getThreadSpend(threadId) {
       return buildThreadSpend(index, await currentAttributionMap(), threadId)
+    },
+    async getLiveSessions() {
+      await refreshLive()
+      return {
+        generatedAt: dependencies.now(),
+        sessions: buildLiveSessions(
+          live.states(),
+          await currentAttributionMap(),
+          indexedTitles(),
+          await currentSessionOwners(),
+        ),
+      }
     },
   }
 }
