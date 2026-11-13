@@ -86,6 +86,13 @@ export function LiveAdviceBanner() {
   };
   const compact = () => run("compact", () => sdk.threads.compact({ threadId }));
   // `compactFirst` queues the draft behind a /compact turn, so the message lands in the small context.
+  // `threads.send` only takes plain text, so a draft with attachments goes through the
+  // composer's own submit instead, queued behind the compaction turn that is now running.
+  const compactThenSubmit = () =>
+    run("send", async () => {
+      await sdk.threads.compact({ threadId });
+      await composer.experimental_submit({ experimental_data: { source: "claude-usage:compact-then-send" } });
+    });
   const compactThenSend = () =>
     run("send", async () => {
       const text = composer.text.trim();
@@ -97,8 +104,8 @@ export function LiveAdviceBanner() {
       } as Parameters<typeof sdk.threads.send>[0]);
       composer.clear();
     });
-  // Plain text is all `threads.send` takes from here, so a draft with attachments keeps the normal send.
-  const canSendDraft = !view.draft.isEmpty && view.draft.attachmentCount === 0;
+  const canSendDraft = !view.draft.isEmpty;
+  const sendDraft = view.draft.attachmentCount > 0 ? compactThenSubmit : compactThenSend;
   const urgent = advice.level === "cold";
   const projection = projectMessages(session, advice, 10);
   const disabled = running || pending !== null;
@@ -138,7 +145,7 @@ export function LiveAdviceBanner() {
             </span>
             {running ? <span className="text-muted-foreground">Compacting waits for this turn to finish</span> : null}
             {canSendDraft ? (
-              <Button size="sm" className="h-6 px-2 text-xs" disabled={disabled} onClick={compactThenSend}>
+              <Button size="sm" className="h-6 px-2 text-xs" disabled={disabled} onClick={sendDraft}>
                 {pending === "send" ? "Compacting…" : "Compact, then send"}
               </Button>
             ) : null}

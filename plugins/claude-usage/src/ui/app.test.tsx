@@ -286,6 +286,23 @@ describe("composer banner", () => {
     });
   });
 
+  it("compacts, then submits a draft with attachments through the composer", async () => {
+    const compact = vi.fn(async () => ({ ok: true as const }));
+    const send = vi.fn(async () => ({ ok: true as const, delivery: "sent" as const }));
+    const slot = renderSlot(banner(), {}, {
+      composer: { scope: { kind: "thread", threadId: "thr_1" }, text: "See the screenshot", attachmentCount: 1 },
+      rpc: { liveSessions: () => ({ generatedAt: Date.now(), sessions: [liveSession({ lastAt: Date.now() - 20 * 60_000 })] }) },
+      sdk: { threads: { compact, send } },
+    });
+    const button = await slot.findByRole("button", { name: "Compact, then send" });
+
+    await act(async () => button.click());
+
+    expect(compact).toHaveBeenCalledWith({ threadId: "thr_1" });
+    expect(send).not.toHaveBeenCalled();
+    expect(slot.composer.submits).toEqual([{ experimental_data: { source: "claude-usage:compact-then-send" } }]);
+  });
+
   it("offers compaction while the cache is warm at its warm price", async () => {
     const slot = render([liveSession({ lastAt: Date.now() - 60_000 })]);
 
