@@ -47,7 +47,7 @@ describe("list preferences", () => {
     });
   });
 
-  it("opens on Now when no tab was saved, or when the removed All tab was saved", () => {
+  it("opens on Now when no tab was saved, or when the removed All or In flight tab was saved", () => {
     const storage = memory();
     expect(readPreferences(storage).tab).toBe("attention");
     storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, mode: "machine" }));
@@ -57,6 +57,8 @@ describe("list preferences", () => {
       tab: "attention",
     });
     storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tab: "all" }));
+    expect(readPreferences(storage).tab).toBe("attention");
+    storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tab: "inflight" }));
     expect(readPreferences(storage).tab).toBe("attention");
   });
 });

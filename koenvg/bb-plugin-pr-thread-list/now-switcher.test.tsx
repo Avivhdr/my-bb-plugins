@@ -117,27 +117,28 @@ describe("Now switcher overlay", () => {
     slot = mount();
     expect(dialog()).toBeNull();
     await open();
-    // Groups sort by name, as in the sidebar.
-    expect(options()).toEqual(["pr", "bot", "c1", "c2"]);
+    // Groups sort by name, as in the sidebar; the running thread sits faded at the bottom.
+    expect(options()).toEqual(["pr", "bot", "c1", "c2", "busy"]);
     const level = (id: string) =>
       document.getElementById(`now-switcher-${id}`)!.getAttribute("aria-level");
     expect([level("bot"), level("c1")]).toEqual(["1", "2"]);
-    expect(screen.queryByRole("option", { name: /Busy/ })).toBeNull();
+    expect(document.getElementById("now-switcher-busy")!.className).toContain("opacity-45");
+    expect(document.getElementById("now-switcher-bot")!.className).not.toContain("opacity-45");
   });
 
   it("keeps a thread collapsed when the sidebar has it collapsed", async () => {
     savePreferences({ ...DEFAULT_PREFERENCES, collapsedThreads: ["bot"] });
     slot = mount({ withList: true });
     const input = await open("bot");
-    expect(options()).toEqual(["pr", "bot"]);
+    expect(options()).toEqual(["pr", "bot", "busy"]);
     expect(selected()).toBe("bot");
     fireEvent.keyDown(input, { key: "ArrowRight" });
-    expect(options()).toEqual(["pr", "bot", "c1", "c2"]);
+    expect(options()).toEqual(["pr", "bot", "c1", "c2", "busy"]);
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowLeft" });
     expect(selected()).toBe("bot");
     fireEvent.keyDown(input, { key: "ArrowLeft" });
-    expect(options()).toEqual(["pr", "bot"]);
+    expect(options()).toEqual(["pr", "bot", "busy"]);
   });
 
   it("hides the threads of a group the sidebar has collapsed", async () => {

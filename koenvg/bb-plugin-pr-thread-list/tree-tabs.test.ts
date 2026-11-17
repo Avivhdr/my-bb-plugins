@@ -6,6 +6,7 @@ import {
   naturalTreePlacements,
   retainedTreePlacement,
   type TreePlacement,
+  type ListItem,
   type ListOptions,
 } from "./list-model";
 import type { PrSummary } from "./pr-insight";
@@ -65,15 +66,24 @@ const rows = (changes: Record<string, Partial<PluginSidebarThread>> = {}) => [
   thread({ id: "leaf", displayTitle: "C leaf", parentThreadId: "mid", ...changes.leaf }),
   thread({ id: "problem", displayTitle: "D problem", parentThreadId: "top", ...changes.problem }),
 ];
+/** Now rows split into the settled part and the faded in flight part at the bottom. */
+type Lane = "attention" | "inflight";
+const laneRows = (items: ListItem[], lane: Lane) =>
+  items.filter(
+    (item): item is Extract<ListItem, { kind: "thread" }> =>
+      item.kind === "thread" && item.inflight === (lane === "inflight"),
+  );
 const shape = (
   threads: PluginSidebarThread[],
-  tab: "attention" | "inflight",
+  lane: Lane,
   summaries = prs,
   snoozed: ReadonlyMap<string, number> = new Map(),
 ) =>
-  visibleItems(threads, [project], [], { ...options, tab }, summaries, snoozed)
-    .filter((item) => item.kind === "thread")
-    .map((item) => [item.id, item.depth, item.context]);
+  laneRows(visibleItems(threads, [project], [], options, summaries, snoozed), lane).map((item) => [
+    item.id,
+    item.depth,
+    item.context,
+  ]);
 const tree = [
   ["top", 0, false],
   ["mid", 1, false],
@@ -174,103 +184,112 @@ describe("tree-wide tab priority", () => {
         status: "active",
       }),
     ];
-    const view = (tab: "attention" | "inflight") =>
-      visibleItems(threads, [project], [], { ...options, tab }, new Map())
-        .filter((item) => item.kind === "thread")
-        .map((item) => item.id);
+    const view = (lane: Lane) =>
+      laneRows(visibleItems(threads, [project], [], options, new Map()), lane).map(
+        (item) => item.id,
+      );
     expect(view("inflight")).toEqual(["launcher", "worker"]);
     expect(view("attention")).toEqual([]);
   });
 });
 
 describe("retained tree placement", () => {
-  const attention: TreePlacement = { rootId: "top", parked: false, tab: "attention" };
-  const inflight: TreePlacement = { rootId: "top", parked: false, tab: "inflight" };
-  const other: TreePlacement = { rootId: "other", parked: false, tab: "attention" };
-  const later: TreePlacement = { rootId: "top", parked: true, tab: "later" };
-  const parkedInFlight: TreePlacement = { rootId: "top", parked: true, tab: "inflight" };
-  const parkedNow: TreePlacement = { rootId: "top", parked: true, tab: "attention" };
+  const attention: TreePlacement = { rootId: "top", parked: false, lane: "attention" };
+  const inflight: TreePlacement = { rootId: "top", parked: false, lane: "inflight" };
+  const other: TreePlacement = { rootId: "other", parked: false, lane: "attention" };
+  const later: TreePlacement = { rootId: "top", parked: true, lane: "later" };
+  const parkedInFlight: TreePlacement = { rootId: "top", parked: true, lane: "inflight" };
+  const parkedNow: TreePlacement = { rootId: "top", parked: true, lane: "attention" };
 
-  it("follows In flight when the selected tree leaves Now", () => {
+  it("holds the in flight placement when the selected tree starts work in Now, without switching tabs", () => {
     expect(retainedTreePlacement(inflight, attention, attention)).toEqual({
       heldTree: inflight,
-      followFrom: "attention",
+      follow: undefined,
     });
     expect(retainedTreePlacement(inflight, undefined, attention)).toEqual({
       heldTree: inflight,
-      followFrom: "attention",
+      follow: undefined,
     });
   });
 
-  it("follows In flight when a selected parked tree starts work in Later", () => {
+  it("stays in Later when a selected parked tree starts work there", () => {
     expect(retainedTreePlacement(parkedInFlight, later, later)).toEqual({
       heldTree: parkedInFlight,
-      followFrom: "later",
+      follow: undefined,
     });
   });
 
-  it("keeps an In flight selection when the tree starts to need attention or finishes", () => {
+  it("follows a selected parked tree from Now to Later when it starts work", () => {
+    expect(retainedTreePlacement(parkedInFlight, parkedNow, parkedNow)).toEqual({
+      heldTree: parkedInFlight,
+      follow: { from: "attention", to: "later" },
+    });
+  });
+
+  it("keeps an in flight selection when the tree starts to need attention or finishes", () => {
     expect(retainedTreePlacement(attention, inflight, inflight)).toEqual({
       heldTree: inflight,
-      followFrom: undefined,
+      follow: undefined,
     });
     expect(retainedTreePlacement(later, parkedInFlight, parkedInFlight)).toEqual({
       heldTree: parkedInFlight,
-      followFrom: undefined,
+      follow: undefined,
     });
   });
 
   it("keeps a Later selection when the tree starts to need attention", () => {
     expect(retainedTreePlacement(parkedNow, later, later)).toEqual({
       heldTree: later,
-      followFrom: undefined,
+      follow: undefined,
     });
   });
 
   it("drops the hold when the selected tree moves to Later or back to Now", () => {
     expect(retainedTreePlacement(later, attention, attention)).toEqual({
       heldTree: later,
-      followFrom: undefined,
+      follow: undefined,
     });
     expect(retainedTreePlacement(attention, later, later)).toEqual({
       heldTree: attention,
-      followFrom: undefined,
+      follow: undefined,
     });
   });
 
   it("uses the current placement for a newly selected tree", () => {
     expect(retainedTreePlacement(other, inflight, undefined)).toEqual({
       heldTree: other,
-      followFrom: undefined,
+      follow: undefined,
     });
   });
 
   it("clears the hold when nothing is selected", () => {
     expect(retainedTreePlacement(undefined, inflight, attention)).toEqual({
       heldTree: undefined,
-      followFrom: undefined,
+      follow: undefined,
     });
   });
 });
 
 describe("held tree placement", () => {
   it.each(["attention", "inflight"] as const)(
-    "retains nesting only in the held %s tab without changing Later",
-    (tab) => {
-      const threads = rows(tab === "attention" ? { top: { status: "active" } } : {});
-      const hold: TreePlacement = { rootId: "top", parked: false, tab };
-      const other = tab === "attention" ? "inflight" : "attention";
+    "retains nesting only in the held %s lane without changing Later",
+    (lane) => {
+      const threads = rows(lane === "attention" ? { top: { status: "active" } } : {});
+      const hold: TreePlacement = { rootId: "top", parked: false, lane };
+      const other = lane === "attention" ? "inflight" : "attention";
       const list = (tab: ListOptions["tab"], heldTree?: TreePlacement) =>
         visibleItems(threads, [project], [], { ...options, tab }, prs, new Map(), heldTree);
-      expect(
-        list(tab, hold)
-          .filter((item) => item.kind === "thread")
-          .map((item) => [item.id, item.depth, item.context]),
-      ).toEqual(tree);
-      expect(list(other, hold)).toEqual([]);
+      const rowsIn = (lane: Lane, heldTree?: TreePlacement) =>
+        laneRows(list("attention", heldTree), lane).map((item) => [
+          item.id,
+          item.depth,
+          item.context,
+        ]);
+      expect(rowsIn(lane, hold)).toEqual(tree);
+      expect(rowsIn(other, hold)).toEqual([]);
       expect(list("later", hold)).toEqual([]);
-      expect(list(tab)).toEqual([]);
-      expect(list(other).filter((item) => item.kind === "thread")).toHaveLength(4);
+      expect(rowsIn(lane)).toEqual([]);
+      expect(rowsIn(other)).toHaveLength(4);
     },
   );
 
@@ -278,17 +297,17 @@ describe("held tree placement", () => {
     const threads = rows({ leaf: { hasPendingInteraction: true } });
     const list = (heldTree?: TreePlacement) =>
       visibleItems(threads, [project], [], options, prs, new Map(), heldTree);
-    expect(list({ rootId: "missing", parked: false, tab: "inflight" })).toHaveLength(5);
-    expect(list({ rootId: "top", parked: true, tab: "inflight" })).toEqual(list());
+    expect(list({ rootId: "missing", parked: false, lane: "inflight" })).toHaveLength(5);
+    expect(list({ rootId: "top", parked: true, lane: "inflight" })).toEqual(list());
   });
 
   it("resolves eligible selections through hidden parents and loaded context ancestors", () => {
     const threads = rows({ top: { isArchived: true }, mid: { status: "active" } });
     const placements = naturalTreePlacements(threads, prs, new Map([["leaf", 9_000]]));
     expect([...placements.keys()]).toEqual(["mid", "problem"]);
-    expect(placements.get("mid")).toEqual({ rootId: "top", parked: false, tab: "inflight" });
+    expect(placements.get("mid")).toEqual({ rootId: "top", parked: false, lane: "inflight" });
     const hidden = naturalTreePlacements(rows({ top: { isHidden: true } }), prs, new Map());
     expect(hidden.has("top")).toBe(false);
-    expect(hidden.get("leaf")).toEqual({ rootId: "mid", parked: false, tab: "attention" });
+    expect(hidden.get("leaf")).toEqual({ rootId: "mid", parked: false, lane: "attention" });
   });
 });

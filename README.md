@@ -17,7 +17,7 @@ bb plugins. My own live under `plugins/`. The ones copied from [koenvg/bb-plugin
 | [github-insight](koenvg/bb-plugin-github-insight) | A PR tab with blockers, reviewers, checks, conversation and diff, plus a review queue panel |
 | [markdown-reader](koenvg/bb-plugin-markdown-reader) | A read-only Markdown reader |
 | [mcp](koenvg/bb-plugin-mcp) | Remote MCP access to projects and threads, off until configured |
-| [pr-thread-list](koenvg/bb-plugin-pr-thread-list) | Sidebar thread list with Needs attention / In flight / All tabs, PR badges and snooze |
+| [pr-thread-list](koenvg/bb-plugin-pr-thread-list) | Sidebar thread list with Now and Later tabs, running threads faded at the bottom of their project, PR badges and snooze |
 
 Install one from a checkout:
 

@@ -3,8 +3,14 @@ import type { BlockerCode, PrSummary } from "./pr-insight";
 import { isActive, needsAttention } from "./row-cues";
 
 export type AttentionTab = "attention" | "inflight";
-/** Shown as Now, In flight, and Later. */
-export type Tab = AttentionTab | "later";
+/** Where a tree belongs. In flight trees show faded at the bottom of their tab. */
+export type Lane = AttentionTab | "later";
+/** Shown as Now and Later. */
+export type Tab = "attention" | "later";
+
+/** A running tree stays in its home tab: Later when parked, Now otherwise. */
+export const tabOfLane = (lane: Lane, parked: boolean): Tab =>
+  lane === "inflight" ? (parked ? "later" : "attention") : lane;
 
 const PROBLEMS: readonly BlockerCode[] = [
   "conflicts",

@@ -400,7 +400,7 @@ function ThreadRow({
       aria-selected={selected}
       aria-expanded={row.hasChildren ? !row.collapsed : undefined}
       aria-level={row.depth + 1}
-      className={`flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-2.5 text-[13px] ${selected ? "bg-accent text-accent-foreground" : ""} ${row.context ? "opacity-60" : ""}`}
+      className={`flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-2.5 text-[13px] ${selected ? "bg-accent text-accent-foreground" : ""} ${row.inflight ? "opacity-45" : row.context ? "opacity-60" : ""}`}
       style={{ paddingLeft: `${12 + row.depth * CHILD_INDENT}px` }}
       onMouseMove={onHover}
       onMouseDown={(event) => event.preventDefault()}

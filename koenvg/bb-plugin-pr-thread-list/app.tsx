@@ -229,7 +229,7 @@ function ThreadRow({
   const isPinned = thread.isPinned && !item.context;
   return (
     <div
-      className={`group/row relative flex min-w-0 items-start ${item.context ? "opacity-60" : ""}`}
+      className={`group/row relative flex min-w-0 items-start transition-opacity ${item.inflight ? "opacity-45 hover:opacity-100 focus-within:opacity-100" : item.context ? "opacity-60" : ""}`}
       style={{
         height: detailed ? HEIGHTS.detailedThread : HEIGHTS.thread,
         paddingLeft: `${ROW_INDENT + item.depth * CHILD_INDENT}px`,
@@ -341,7 +341,6 @@ function ThreadRow({
 
 const TABS: { value: Tab; label: string; empty: string }[] = [
   { value: "attention", label: "Now", empty: "Nothing needs you now." },
-  { value: "inflight", label: "In flight", empty: "Nothing in flight." },
   { value: "later", label: "Later", empty: "Nothing parked for later." },
 ];
 
@@ -554,20 +553,16 @@ function ThreadList(props: PluginThreadListProps & { snoozeClient: SnoozeClient 
   const priorPlacement = props.activeThreadId
     ? previous.placements.get(props.activeThreadId)
     : undefined;
-  const { heldTree, followFrom } = retainedTreePlacement(
-    selected,
-    previous.heldTree,
-    priorPlacement,
-  );
+  const { heldTree, follow } = retainedTreePlacement(selected, previous.heldTree, priorPlacement);
   // Derive before rendering; only committed renders may supply transition history.
   useLayoutEffect(() => {
     committed.current = { placements, heldTree };
-    if (followFrom && prefs.tab === followFrom) {
+    if (follow && prefs.tab === follow.from) {
       setPrefs((current) =>
-        current.tab === followFrom ? { ...current, tab: "inflight" } : current,
+        current.tab === follow.from ? { ...current, tab: follow.to } : current,
       );
     }
-  }, [placements, heldTree, followFrom, prefs.tab]);
+  }, [placements, heldTree, follow, prefs.tab]);
   // The Cmd+K switcher draws the Now tab from these same inputs.
   useEffect(() => {
     if (!insight.loaded) return;

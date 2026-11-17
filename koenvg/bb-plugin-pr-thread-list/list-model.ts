@@ -4,7 +4,7 @@ import type {
   PluginSidebarThread,
 } from "@get-bb/plugin-sdk/app";
 import { isActive, isBusy, needsAttention } from "./row-cues";
-import { pullsTreeToAttention, type Tab } from "./tabs";
+import { pullsTreeToAttention, tabOfLane, type Lane, type Tab } from "./tabs";
 import type { PrSummary } from "./pr-insight";
 
 export type Organization = "project" | "machine" | "section";
@@ -64,6 +64,8 @@ export type ListItem =
       hasChildren: boolean;
       collapsed: boolean;
       context: boolean;
+      /** Part of a tree that is in flight: shown faded, below the rest of its group. */
+      inflight: boolean;
     };
 
 function compare(a: PluginSidebarThread, b: PluginSidebarThread, options: ListOptions): number {
@@ -172,31 +174,37 @@ function collectTrees(forest: Forest, members: readonly PluginSidebarThread[]): 
 export interface TreePlacement {
   rootId: string;
   parked: boolean;
-  tab: Tab;
+  lane: Lane;
 }
 
 const sameTree = (a: TreePlacement | undefined, b: TreePlacement) =>
   a?.rootId === b.rootId && a.parked === b.parked;
 
+export const tabOfPlacement = (placement: TreePlacement): Tab =>
+  tabOfLane(placement.lane, placement.parked);
+
 /**
- * A selected In flight tree stays there until selection leaves.
- * A selected Now or Later tree follows In flight as soon as work starts.
- * Moving a tree to Later or back to Now ends the hold.
+ * A selected in flight tree stays faded at the bottom until selection leaves.
+ * A selected tree joins the in flight rows as soon as work starts. When that
+ * moves it to another tab, `follow` names the switch so the open thread stays
+ * on screen. Moving a tree to Later or back to Now ends the hold.
  */
 export function retainedTreePlacement(
   selected: TreePlacement | undefined,
   previousHold: TreePlacement | undefined,
   priorPlacement: TreePlacement | undefined,
-): { heldTree: TreePlacement | undefined; followFrom: Tab | undefined } {
-  if (!selected) return { heldTree: undefined, followFrom: undefined };
+): { heldTree: TreePlacement | undefined; follow: { from: Tab; to: Tab } | undefined } {
+  if (!selected) return { heldTree: undefined, follow: undefined };
   const retained = sameTree(previousHold, selected)
     ? previousHold!
     : sameTree(priorPlacement, selected)
       ? priorPlacement!
       : selected;
-  const followFrom =
-    retained.tab !== "inflight" && selected.tab === "inflight" ? retained.tab : undefined;
-  return { heldTree: followFrom ? selected : retained, followFrom };
+  if (retained.lane === "inflight" || selected.lane !== "inflight")
+    return { heldTree: retained, follow: undefined };
+  const from = tabOfPlacement(retained);
+  const to = tabOfPlacement(selected);
+  return { heldTree: selected, follow: from === to ? undefined : { from, to } };
 }
 
 /** A thread is parked when it, or any shown ancestor, was moved to Later. */
@@ -227,7 +235,7 @@ function tabOfTree(
   isMember: (thread: PluginSidebarThread) => boolean,
   pullRequests: ReadonlyMap<string, PrSummary | null>,
   parked: boolean,
-): Tab {
+): Lane {
   // Unread output, PR changes, and finished work leave a parked tree in Later.
   if (parked)
     return members.some(needsAttention)
@@ -277,7 +285,7 @@ export function naturalTreePlacements(
       const placement = {
         rootId: tree.root.id,
         parked: isParked,
-        tab: tabOfTree(tree, forest, isMember, pullRequests, isParked),
+        lane: tabOfTree(tree, forest, isMember, pullRequests, isParked),
       };
       for (const member of tree.members) placements.set(member.id, placement);
     }
@@ -336,16 +344,19 @@ export function visibleItems(
     roots: Set<PluginSidebarThread>;
     rows: Set<string>;
     members: Set<string>;
+    /** Rows of trees that are not in flight; they win when a parked and an awake tree merge. */
+    settledRows: Set<string>;
   };
   const emptyGroup = (scope: GroupScope): Group => ({
     scope,
     roots: new Set(),
     rows: new Set(),
     members: new Set(),
+    settledRows: new Set(),
   });
   const groups = new Map<string, Group>();
   // A parked and an awake tree can share a root; they merge into one rendered tree.
-  const add = (scope: GroupScope, { root, members, rows }: Tree) => {
+  const add = (scope: GroupScope, { root, members, rows }: Tree, inflight = false) => {
     const key = groupKey(scope);
     let group = groups.get(key);
     if (!group) {
@@ -355,6 +366,7 @@ export function visibleItems(
     group.roots.add(root);
     for (const id of rows) group.rows.add(id);
     for (const member of members) group.members.add(member.id);
+    if (!inflight) for (const id of rows) group.settledRows.add(id);
   };
   const sectionOrder = new Map(sections.map((section, index) => [section.id, index]));
   if (options.mode === "section")
@@ -364,11 +376,11 @@ export function visibleItems(
     }
   for (const [isParked, isMember] of memberships(isEligible, parked))
     for (const tree of collectTrees(forest, threads.filter(isMember))) {
-      const placement = { rootId: tree.root.id, parked: isParked, tab };
-      const effectiveTab = sameTree(heldTree, placement)
-        ? heldTree!.tab
+      const held = heldTree?.rootId === tree.root.id && heldTree.parked === isParked;
+      const lane = held
+        ? heldTree!.lane
         : tabOfTree(tree, forest, isMember, pullRequests, isParked);
-      if (effectiveTab === tab) add(scopeOf(tree.root), tree);
+      if (tabOfLane(lane, isParked) === tab) add(scopeOf(tree.root), tree, lane === "inflight");
     }
   if (tab === "later")
     for (const tree of collectTrees(forest, threads.filter(isSnoozedMember)))
@@ -381,7 +393,7 @@ export function visibleItems(
     return labelOf(a).localeCompare(labelOf(b));
   });
   const result: ListItem[] = [];
-  for (const { scope, roots, rows, members } of groupOrder) {
+  for (const { scope, roots, rows, members, settledRows } of groupOrder) {
     const key = groupKey(scope);
     const collapsed = options.collapsedGroups.includes(key);
     const count = members.size;
@@ -398,12 +410,16 @@ export function visibleItems(
         hasChildren: descendants.length > 0,
         collapsed: folded,
         context: !members.has(thread.id),
+        inflight: !settledRows.has(thread.id),
       });
       if (!folded)
         for (const child of descendants.sort((a, b) => compare(a, b, options)))
           append(child, depth + 1);
     };
-    for (const root of [...roots].sort((a, b) => compare(a, b, options))) append(root, 0);
+    // In flight trees sink below the rest of the group.
+    const sinks = (root: PluginSidebarThread) => (settledRows.has(root.id) ? 0 : 1);
+    for (const root of [...roots].sort((a, b) => sinks(a) - sinks(b) || compare(a, b, options)))
+      append(root, 0);
   }
   return result;
 }

@@ -30,10 +30,8 @@ export function readPreferences(storage: Store | undefined = localStore()): List
       return DEFAULT_PREFERENCES;
     const value = parsed as Record<string, unknown>;
     return {
-      // A saved "all" tab predates Later and falls back to Now.
-      tab: oneOf(value.tab, ["attention", "inflight", "later"])
-        ? value.tab
-        : DEFAULT_PREFERENCES.tab,
+      // A saved "all" or "inflight" tab predates the current tabs and falls back to Now.
+      tab: oneOf(value.tab, ["attention", "later"]) ? value.tab : DEFAULT_PREFERENCES.tab,
       mode: oneOf(value.mode, ["project", "machine", "section"])
         ? value.mode
         : DEFAULT_PREFERENCES.mode,

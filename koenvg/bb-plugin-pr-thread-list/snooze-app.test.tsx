@@ -44,6 +44,9 @@ const context = (threadId: string | null = "t1"): PluginCommandContext => ({
 const available = (ctx = context()) =>
   commands.filter((command) => command.isAvailable!(ctx)).map(({ id }) => id);
 const command = (id: string) => commands.find((entry) => entry.id === id)!;
+/** In flight rows are faded at the bottom of their group. */
+const faded = (link: HTMLElement) =>
+  link.closest('[class*="group/row"]')!.className.includes("opacity-45");
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -229,14 +232,13 @@ describe("captured subtree in the sidebar", () => {
         true,
       );
       await waitFor(() => expect(available()).toContain("snooze-tomorrow"));
-      fireEvent.click(slot.getByRole("tab", { name: "In flight" }));
+      expect(slot.queryByRole("tab", { name: "In flight" })).toBeNull();
+      expect(slot.getAllByRole("link").map(faded)).toEqual([true, true, true]);
       if (entry === "menu") {
         fireEvent.click(slot.getByRole("button", { name: "Actions for Prepare release" }));
         fireEvent.click(slot.getByRole("menuitem", { name: "Tomorrow" }));
       } else await act(async () => command("snooze-tomorrow").run(context()));
       await waitFor(() => expect(available()).toEqual(["wake-now"]));
-      expect(slot.queryAllByRole("link")).toHaveLength(0);
-      fireEvent.click(slot.getByRole("tab", { name: "Now" }));
       expect(slot.queryAllByRole("link")).toHaveLength(0);
       fireEvent.click(slot.getByRole("tab", { name: "Later" }));
       expect(slot.getByRole("button", { name: "Collapse Snoozed" })).toBeTruthy();
@@ -259,11 +261,9 @@ describe("captured subtree in the sidebar", () => {
       await waitFor(() =>
         expect(slot.queryByRole("button", { name: "Collapse Snoozed" })).toBeNull(),
       );
-      fireEvent.click(slot.getByRole("tab", { name: "In flight" }));
-      for (const name of ["Prepare release", "Child", "Grandchild"])
-        expect(slot.getAllByRole("link", { name })).toHaveLength(1);
       fireEvent.click(slot.getByRole("tab", { name: "Now" }));
-      expect(slot.queryAllByRole("link")).toHaveLength(0);
+      for (const name of ["Prepare release", "Child", "Grandchild"])
+        expect(faded(slot.getByRole("link", { name }))).toBe(true);
     },
   );
 
@@ -290,8 +290,8 @@ describe("captured subtree in the sidebar", () => {
       expect(calls(slot, "wake").map(({ input }) => input)).toEqual([{ threadId: "grandchild" }]),
     );
     for (const name of ["Prepare release", "Child", "Grandchild"])
-      expect(slot.getAllByRole("link", { name })).toHaveLength(1);
-    fireEvent.click(slot.getByRole("tab", { name: "In flight" }));
+      expect(faded(slot.getByRole("link", { name }))).toBe(false);
+    fireEvent.click(slot.getByRole("tab", { name: "Later" }));
     expect(slot.queryAllByRole("link")).toHaveLength(0);
   });
 

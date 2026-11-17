@@ -14,6 +14,10 @@ const defaults: ListOptions = {
 };
 const titles = (items: ReturnType<typeof visibleItems>) =>
   items.filter((item) => item.kind === "thread").map((item) => item.thread.displayTitle);
+/** The settled rows of a tab, or its faded in flight rows. */
+type Lane = "attention" | "inflight";
+const inLane = (items: ReturnType<typeof visibleItems>, lane: Lane) =>
+  items.filter((item) => item.kind !== "thread" || item.inflight === (lane === "inflight"));
 
 const rows = [
   thread({ id: "parent", displayTitle: "Parent", updatedAt: 300 }),
@@ -275,17 +279,21 @@ describe("visibleItems", () => {
       thread({ id: "hidden", displayTitle: "Hidden", isHidden: true }),
     ];
     const prs = new Map([["waits", running]]);
-    const tab = (name: "attention" | "inflight", extra: Partial<ListOptions> = {}) =>
-      visibleItems(tabRows, [project, other], [], { ...defaults, tab: name, ...extra }, prs);
+    const tab = (name: Lane, extra: Partial<ListOptions> = {}) =>
+      inLane(visibleItems(tabRows, [project, other], [], { ...defaults, ...extra }, prs), name);
 
-    it("puts each active thread in one tab and keeps archived and hidden threads out", () => {
+    it("puts each active thread in one lane and keeps archived and hidden threads out", () => {
       expect(titles(tab("attention"))).toEqual(["Pin", "Busy", "Child asks", "Idle"]);
       expect(titles(tab("inflight"))).toEqual(["Waits on CI"]);
+      expect(
+        titles(visibleItems(tabRows, [project, other], [], { ...defaults, tab: "later" }, prs)),
+      ).toEqual([]);
     });
-    it("keeps pinned first, nests a child under a parent whose own tab differs, and shows no Needs you group", () => {
+    it("keeps pinned first, nests a child under a parent whose own lane differs, and shows no Needs you group", () => {
       const items = tab("attention");
       expect(items.filter((item) => item.kind === "group").map((item) => item.id)).toEqual([
         "pinned",
+        "project:p2",
         "project:p1",
       ]);
       expect(items.find((item) => item.kind === "thread" && item.id === "child")).toMatchObject({
@@ -298,15 +306,9 @@ describe("visibleItems", () => {
         thread({ id: "mid", displayTitle: "Mid", parentThreadId: "top", status: "active" }),
         thread({ id: "leaf", displayTitle: "Leaf", parentThreadId: "mid", ...leaf }),
       ];
-      const view = (rows: ReturnType<typeof tree>, name: "attention" | "inflight") =>
+      const view = (rows: ReturnType<typeof tree>, name: Lane) =>
         titles(
-          visibleItems(
-            rows,
-            [project],
-            [],
-            { ...defaults, tab: name },
-            new Map([["leaf", running]]),
-          ),
+          inLane(visibleItems(rows, [project], [], defaults, new Map([["leaf", running]])), name),
         );
       const asks = { indicator: "waiting-for-input" } as const;
       expect(view(tree(asks), "attention")).toEqual(["Top", "Mid", "Leaf"]);
@@ -345,15 +347,9 @@ describe("visibleItems", () => {
         thread({ id: "done", displayTitle: "Done", parentThreadId: "parent" }),
       ];
       const tree = ["Parent", "Working", "Done", "No PR"];
-      const view = (name: "attention" | "inflight", donePr: PrSummary) =>
+      const view = (name: Lane, donePr: PrSummary) =>
         titles(
-          visibleItems(
-            rows,
-            [project],
-            [],
-            { ...defaults, tab: name },
-            new Map([["done", donePr]]),
-          ),
+          inLane(visibleItems(rows, [project], [], defaults, new Map([["done", donePr]])), name),
         );
 
       it.each([
@@ -383,15 +379,11 @@ describe("visibleItems", () => {
         thread({ id: "top", displayTitle: "Top" }),
         thread({ id: "kid", displayTitle: "Kid", parentThreadId: "top" }),
       ];
-      expect(titles(visibleItems(rows, [project], [], { ...defaults, tab: "attention" }))).toEqual([
-        "Top",
-        "Kid",
-      ]);
-      expect(titles(visibleItems(rows, [project], [], { ...defaults, tab: "inflight" }))).toEqual(
-        [],
-      );
+      const items = visibleItems(rows, [project], [], defaults);
+      expect(titles(inLane(items, "attention"))).toEqual(["Top", "Kid"]);
+      expect(titles(inLane(items, "inflight"))).toEqual([]);
     });
-    it("shows a parent whose own tab is In flight in Needs attention with its child that needs the user", () => {
+    it("shows a parent whose own lane is in flight as settled in Now with its child that needs the user", () => {
       const rows = [
         thread({ id: "parent", displayTitle: "Parent" }),
         thread({
@@ -404,13 +396,9 @@ describe("visibleItems", () => {
       expect(tabFor(rows[0]!, null, threadsWithActiveDescendant(rows).has("parent"))).toBe(
         "inflight",
       );
-      expect(titles(visibleItems(rows, [project], [], { ...defaults, tab: "attention" }))).toEqual([
-        "Parent",
-        "Asks",
-      ]);
-      expect(titles(visibleItems(rows, [project], [], { ...defaults, tab: "inflight" }))).toEqual(
-        [],
-      );
+      const items = visibleItems(rows, [project], [], defaults);
+      expect(titles(inLane(items, "attention"))).toEqual(["Parent", "Asks"]);
+      expect(titles(inLane(items, "inflight"))).toEqual([]);
     });
     it("puts a parent in flight while a descendant is active, and ignores archived descendants", () => {
       const rows = [
@@ -427,21 +415,52 @@ describe("visibleItems", () => {
           archivedAt: 1,
         }),
       ];
-      const view = (name: "attention" | "inflight") =>
-        visibleItems(rows, [project], [], { ...defaults, tab: name });
+      const view = (name: Lane) => inLane(visibleItems(rows, [project], [], defaults), name);
       expect(titles(view("attention"))).toEqual(["Lonely"]);
       expect(titles(view("inflight"))).toEqual(["Parent", "Mid", "Leaf"]);
     });
-    it("groups the threads of a tab by project", () => {
+    it("groups in flight threads by project", () => {
       const rows = [
         thread({ id: "waits", projectId: "p2" }),
         thread({ id: "busy", status: "active" }),
       ];
-      expect(
-        visibleItems(rows, [project, other], [], { ...defaults, tab: "inflight" }, prs).map(
-          (item) => (item.kind === "group" ? item.label : item.id),
-        ),
-      ).toEqual(["Other project", "waits", "Sample project", "busy"]);
+      const items = visibleItems(rows, [project, other], [], defaults, prs);
+      expect(items.map((item) => (item.kind === "group" ? item.label : item.id))).toEqual([
+        "Other project",
+        "waits",
+        "Sample project",
+        "busy",
+      ]);
+      expect(items.filter((item) => item.kind === "thread").every((item) => item.inflight)).toBe(
+        true,
+      );
+    });
+    it("sinks in flight trees below the settled trees of their group, whatever the sort", () => {
+      const rows = [
+        thread({ id: "idle", displayTitle: "Idle", updatedAt: 1 }),
+        thread({ id: "busy", displayTitle: "Busy", status: "active", updatedAt: 900 }),
+        thread({ id: "kid", displayTitle: "Kid", parentThreadId: "busy", updatedAt: 950 }),
+        thread({ id: "fresh", displayTitle: "Fresh", isUnread: true, updatedAt: 500 }),
+        thread({ id: "pinBusy", displayTitle: "Pin busy", isPinned: true, status: "active" }),
+        thread({ id: "pinIdle", displayTitle: "Pin idle", isPinned: true }),
+      ];
+      for (const sort of ["updated", "created", "title"] as const)
+        for (const direction of ["asc", "desc"] as const) {
+          const items = visibleItems(rows, [project], [], { ...defaults, sort, direction });
+          const threads = items.filter((item) => item.kind === "thread");
+          const ordered = (ids: string[]) => threads.filter((t) => ids.includes(t.id));
+          expect(ordered(["pinBusy", "pinIdle"]).map((t) => t.id)).toEqual(["pinIdle", "pinBusy"]);
+          expect(
+            ordered(["idle", "busy", "kid", "fresh"])
+              .slice(-2)
+              .map((t) => t.id),
+          ).toEqual(["busy", "kid"]);
+          expect(threads.filter((t) => t.inflight).map((t) => t.id)).toEqual([
+            "pinBusy",
+            "busy",
+            "kid",
+          ]);
+        }
     });
   });
 });
@@ -493,7 +512,7 @@ describe("snoozed threads", () => {
     ).toEqual(["[Snoozed]"]);
   });
 
-  it.each(["attention", "inflight"] as const)("do not show in the %s tab", (tab) => {
+  it.each(["attention", "inflight"] as const)("do not show in the %s lane of Now", (lane) => {
     const threads = [
       thread({ id: "snoozed", displayTitle: "Snoozed one" }),
       thread({ id: "busy", status: "active", displayTitle: "Busy" }),
@@ -505,8 +524,8 @@ describe("snoozed threads", () => {
     ]);
 
     expect(
-      titles(visibleItems(threads, [project], [], { ...defaults, tab }, new Map(), both)),
-    ).toEqual(tab === "inflight" ? ["Busy"] : []);
+      titles(inLane(visibleItems(threads, [project], [], defaults, new Map(), both), lane)),
+    ).toEqual(lane === "inflight" ? ["Busy"] : []);
   });
 
   it("leave the tree of an awake parent, which shows as a dimmed row in Snoozed", () => {
@@ -576,7 +595,6 @@ describe("snoozed threads", () => {
     const view = (tab: ListOptions["tab"], snoozed = group, extra: Partial<ListOptions> = {}) =>
       visibleItems(threads, [project], [], { ...defaults, tab, ...extra }, new Map(), snoozed);
     expect(view("attention")).toEqual([]);
-    expect(view("inflight")).toEqual([]);
     expect(labels(view("later"))).toEqual(["[Snoozed]", "Parent", "Child", "Grandchild"]);
     expect(
       view("later")
@@ -591,8 +609,12 @@ describe("snoozed threads", () => {
       "[Snoozed]",
       "Parent",
     ]);
-    expect(titles(view("attention", new Map()))).toEqual([]);
-    expect(titles(view("inflight", new Map()))).toEqual(["Parent", "Child", "Grandchild"]);
+    expect(titles(inLane(view("attention", new Map()), "attention"))).toEqual([]);
+    expect(titles(inLane(view("attention", new Map()), "inflight"))).toEqual([
+      "Parent",
+      "Child",
+      "Grandchild",
+    ]);
   });
 
   it("keeps ancestor context for an awake child outside the captured group", () => {
@@ -643,7 +665,7 @@ describe("parked threads", () => {
   const ids = (items: ReturnType<typeof visibleItems>) =>
     items
       .filter((item) => item.kind === "thread")
-      .map((item) => `${item.id}${item.context ? "?" : ""}`);
+      .map((item) => `${item.id}${item.context ? "?" : ""}${item.inflight ? "~" : ""}`);
 
   it("keeps an idle parked thread in Later even with unread output or a PR problem", () => {
     const threads = [
@@ -670,18 +692,17 @@ describe("parked threads", () => {
     const parked = new Set(["quiet", "unread", "conflicted"]);
     expect(ids(view(threads, "later", parked, prs))).toEqual(["conflicted", "quiet", "unread"]);
     expect(ids(view(threads, "attention", parked, prs))).toEqual(["awake"]);
-    expect(ids(view(threads, "inflight", parked, prs))).toEqual([]);
   });
 
-  it("moves a parked tree to In flight while it works and to Now while it needs you", () => {
+  it("keeps a parked tree faded at the bottom of Later while it works, and moves it to Now while it needs you", () => {
     const threads = [
-      thread({ id: "working", status: "active" }),
+      thread({ id: "working", status: "active", updatedAt: 900 }),
       thread({ id: "asks", indicator: "waiting-for-input" }),
+      thread({ id: "idle", updatedAt: 1 }),
     ];
-    const parked = new Set(["working", "asks"]);
-    expect(ids(view(threads, "inflight", parked))).toEqual(["working"]);
+    const parked = new Set(["working", "asks", "idle"]);
+    expect(ids(view(threads, "later", parked))).toEqual(["idle", "working~"]);
     expect(ids(view(threads, "attention", parked))).toEqual(["asks"]);
-    expect(ids(view(threads, "later", parked))).toEqual([]);
   });
 
   it("parks every descendant of a parked thread, including ones created later", () => {
@@ -729,7 +750,11 @@ describe("parked threads", () => {
       new Map(),
       parkedThreads(threads, new Set(["child"])),
     );
-    expect(placements.get("parent")).toEqual({ rootId: "parent", parked: false, tab: "attention" });
-    expect(placements.get("child")).toEqual({ rootId: "parent", parked: true, tab: "later" });
+    expect(placements.get("parent")).toEqual({
+      rootId: "parent",
+      parked: false,
+      lane: "attention",
+    });
+    expect(placements.get("child")).toEqual({ rootId: "parent", parked: true, lane: "later" });
   });
 });

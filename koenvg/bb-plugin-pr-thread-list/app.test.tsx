@@ -143,44 +143,42 @@ function mount(
   });
 }
 
-// A Now selection follows In flight at once. Only In flight stays put.
-const heldTabs = [["inflight", "In flight", "Now"]] as const;
-
-function family(tab: "attention" | "inflight", changed = false): PluginSidebarThread[] {
+/** A running parent with three descendants; `changed` stops the parent. */
+function family(changed = false): PluginSidebarThread[] {
   return [
-    thread({
-      id: "parent",
-      displayTitle: "Parent",
-      status: tab === "inflight" && changed ? "idle" : "active",
-    }),
-    thread({
-      id: "child",
-      displayTitle: "Child",
-      parentThreadId: "parent",
-      isUnread: tab === "attention" && !changed,
-    }),
+    thread({ id: "parent", displayTitle: "Parent", status: changed ? "idle" : "active" }),
+    thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
     thread({ id: "grandchild", displayTitle: "Grandchild", parentThreadId: "child" }),
     thread({ id: "sibling", displayTitle: "Sibling", parentThreadId: "parent" }),
     thread({ id: "outside", displayTitle: "Outside" }),
   ];
 }
 
-function expectFamily(slot: ReturnType<typeof mount>, shown: boolean) {
-  for (const name of ["Parent", "Child", "Grandchild", "Sibling"])
-    expect(Boolean(slot.queryByRole("link", { name }))).toBe(shown);
+/** In flight rows are faded and sit at the bottom of their group. */
+const isFaded = (link: HTMLElement) =>
+  link.closest(".group\\/row")!.classList.contains("opacity-45");
+const linkNames = (slot: ReturnType<typeof renderSlot>) =>
+  slot.queryAllByRole("link").map((link) => link.textContent);
+
+/** How the open tab shows Parent, Child, Grandchild and Sibling. */
+function familyView(slot: ReturnType<typeof mount>) {
+  const views = ["Parent", "Child", "Grandchild", "Sibling"].map((name) => {
+    const link = slot.queryByRole("link", { name });
+    return !link ? "absent" : isFaded(link) ? "faded" : "settled";
+  });
+  return views.every((view) => view === views[0]) ? views[0] : `mixed: ${views.join(", ")}`;
 }
 
 // Host data and selection updates use the same mounted SDK slot, including combined updates.
-describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
+describe("selected in flight tree", () => {
   it.each(["parent", "child"])(
     "captures %s selection with separate and combined signal updates",
     (selected) => {
       for (const combined of [false, true]) {
-        const slot = mount(family(tab));
-        showTab(slot, heldTab);
+        const slot = mount(family());
         if (!combined) slot.update({ activeThreadId: selected });
-        slot.update({ threads: family(tab, true), activeThreadId: selected });
-        expectFamily(slot, true);
+        slot.update({ threads: family(true), activeThreadId: selected });
+        expect(familyView(slot)).toBe("faded");
         expect(
           slot
             .getByRole("link", { name: selected === "parent" ? "Parent" : "Child" })
@@ -196,13 +194,14 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
   );
 
   it("keeps navigation, nesting, and collapse current, then releases on leaving and does not restore an old hold", () => {
-    const slot = mount(family(tab));
-    showTab(slot, heldTab);
-    slot.update({ activeThreadId: "child", threads: family(tab, true) });
+    const slot = mount(family());
+    expect(linkNames(slot)).toEqual(["Outside", "Parent", "Child", "Grandchild", "Sibling"]);
+    slot.update({ activeThreadId: "child", threads: family(true) });
     for (const activeThreadId of ["parent", "sibling", "grandchild"]) {
       slot.update({ activeThreadId });
-      expectFamily(slot, true);
+      expect(familyView(slot)).toBe("faded");
     }
+    expect(linkNames(slot)[0]).toBe("Outside");
     expect(
       slot.getByRole("link", { name: "Grandchild" }).closest<HTMLElement>(".group\\/row")!.style
         .paddingLeft,
@@ -210,58 +209,45 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
     fireEvent.click(slot.getByRole("button", { name: "Collapse Child" }));
     expect(slot.queryByRole("link", { name: "Grandchild" })).toBeNull();
     fireEvent.click(slot.getByRole("button", { name: "Expand Child" }));
-    expectFamily(slot, true);
-    showTab(slot, naturalTab);
-    expectFamily(slot, false);
+    expect(familyView(slot)).toBe("faded");
     showTab(slot, "Later");
-    expectFamily(slot, false);
-    showTab(slot, heldTab);
-    expectFamily(slot, true);
+    expect(familyView(slot)).toBe("absent");
+    showTab(slot, "Now");
+    expect(familyView(slot)).toBe("faded");
     slot.update({ activeThreadId: "outside" });
-    expectFamily(slot, false);
-    showTab(slot, naturalTab);
-    expectFamily(slot, true);
+    expect(familyView(slot)).toBe("settled");
     slot.update({ activeThreadId: "child" });
-    expectFamily(slot, true);
-    showTab(slot, heldTab);
-    expectFamily(slot, false);
+    expect(familyView(slot)).toBe("settled");
   });
 
   it("releases when selection clears and uses current placement on remount", () => {
-    const slot = mount(family(tab));
-    showTab(slot, heldTab);
-    slot.update({ activeThreadId: "child", threads: family(tab, true) });
+    const slot = mount(family());
+    slot.update({ activeThreadId: "child", threads: family(true) });
+    expect(familyView(slot)).toBe("faded");
     slot.update({ activeThreadId: null });
-    expectFamily(slot, false);
+    expect(familyView(slot)).toBe("settled");
     slot.lifecycle.unmount();
     mounted = undefined;
-    const fresh = mount(family(tab, true), {}, {}, { activeThreadId: "child" });
-    showTab(fresh, heldTab);
-    expectFamily(fresh, false);
-    showTab(fresh, naturalTab);
-    expectFamily(fresh, true);
+    const fresh = mount(family(true), {}, {}, { activeThreadId: "child" });
+    expect(familyView(fresh)).toBe("settled");
   });
 
   it("discards an active hold on remount even when the selection stays", () => {
-    const slot = mount(family(tab));
-    showTab(slot, heldTab);
-    slot.update({ activeThreadId: "child", threads: family(tab, true) });
-    expectFamily(slot, true);
+    const slot = mount(family());
+    slot.update({ activeThreadId: "child", threads: family(true) });
+    expect(familyView(slot)).toBe("faded");
     slot.lifecycle.unmount();
     mounted = undefined;
-    const fresh = mount(family(tab, true), {}, {}, { activeThreadId: "child" });
-    expectFamily(fresh, false);
-    showTab(fresh, naturalTab);
-    expectFamily(fresh, true);
+    const fresh = mount(family(true), {}, {}, { activeThreadId: "child" });
+    expect(familyView(fresh)).toBe("settled");
   });
 
   it.each(["archived", "hidden", "removed"] as const)(
     "releases when the selected member becomes %s",
     (excluded) => {
-      const slot = mount(family(tab));
-      showTab(slot, heldTab);
-      slot.update({ activeThreadId: "child", threads: family(tab, true) });
-      const threads = family(tab, true).flatMap((row) =>
+      const slot = mount(family());
+      slot.update({ activeThreadId: "child", threads: family(true) });
+      const threads = family(true).flatMap((row) =>
         row.id !== "child"
           ? [row]
           : excluded === "removed"
@@ -269,9 +255,7 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
             : [{ ...row, isArchived: excluded === "archived", isHidden: excluded === "hidden" }],
       );
       slot.update({ threads });
-      expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
-      showTab(slot, naturalTab);
-      expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+      expect(isFaded(slot.getByRole("link", { name: "Parent" }))).toBe(false);
       if (excluded === "archived") {
         const context = slot.getByRole("link", { name: "Child" }).closest(".group\\/row")!;
         expect(context.classList.contains("opacity-60")).toBe(true);
@@ -282,7 +266,7 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
   it("releases after successfully snoozing the selected child without holding its awake siblings", async () => {
     let snoozes: Record<string, number> = {};
     const slot = mount(
-      family(tab),
+      family(),
       {},
       {
         rpc: {
@@ -295,15 +279,12 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
         },
       },
     );
-    showTab(slot, heldTab);
-    slot.update({ activeThreadId: "child", threads: family(tab, true) });
+    slot.update({ activeThreadId: "child", threads: family(true) });
     await slot.findByRole("button", { name: "Actions for Child" });
     fireEvent.click(slot.getByRole("button", { name: "Actions for Child" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Tomorrow" }));
-    await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Parent" })).toBeNull());
-    showTab(slot, naturalTab);
-    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
-    expect(slot.queryByRole("link", { name: "Child" })).toBeNull();
+    await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Child" })).toBeNull());
+    expect(isFaded(slot.getByRole("link", { name: "Parent" }))).toBe(false);
     showTab(slot, "Later");
     expect(slot.getByRole("button", { name: "Collapse Snoozed" })).toBeTruthy();
     expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
@@ -311,93 +292,93 @@ describe.each(heldTabs)("selected tree in %s", (tab, heldTab, naturalTab) => {
 });
 
 describe("selected Now tree starts work", () => {
+  const outside = thread({ id: "outside", displayTitle: "Outside", updatedAt: 0 });
   const waiting = [
     thread({ id: "parent", displayTitle: "Parent", hasPendingInteraction: true }),
     thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
+    outside,
   ];
   const working = [
     thread({ id: "parent", displayTitle: "Parent", status: "active" }),
     thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
+    outside,
   ];
   const selectedTab = (slot: ReturnType<typeof mount>, name: string) =>
     slot.getByRole("tab", { name }).getAttribute("aria-selected");
+  const faded = (slot: ReturnType<typeof mount>, name: string) =>
+    isFaded(slot.getByRole("link", { name }));
 
-  it("switches the open tab to In flight and leaves Now", () => {
+  it("stays on Now and fades the tree at the bottom of its group", () => {
     const slot = mount(waiting);
-    showTab(slot, "Now");
     slot.update({ activeThreadId: "parent" });
-    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(linkNames(slot)).toEqual(["Parent", "Child", "Outside"]);
+    expect(faded(slot, "Parent")).toBe(false);
     slot.update({ threads: working });
-    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(selectedTab(slot, "Now")).toBe("true");
+    expect(slot.queryByRole("tab", { name: "In flight" })).toBeNull();
     expect(slot.getByRole("link", { name: "Parent" }).getAttribute("aria-current")).toBe("page");
-    expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
-    showTab(slot, "Now");
-    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
+    expect(linkNames(slot)).toEqual(["Outside", "Parent", "Child"]);
+    expect([faded(slot, "Parent"), faded(slot, "Child"), faded(slot, "Outside")]).toEqual([
+      true,
+      true,
+      false,
+    ]);
   });
 
-  it("follows when selection and the start of work arrive together", () => {
+  it("fades when selection and the start of work arrive together", () => {
     const slot = mount(waiting);
-    showTab(slot, "Now");
     slot.update({ threads: working, activeThreadId: "child" });
-    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(selectedTab(slot, "Now")).toBe("true");
     expect(slot.getByRole("link", { name: "Child" }).getAttribute("aria-current")).toBe("page");
-    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(faded(slot, "Parent")).toBe(true);
   });
 
-  it("keeps Later selected and removes the tree from Now", () => {
+  it("keeps Later selected and fades the tree in Now", () => {
     const slot = mount(waiting);
     showTab(slot, "Later");
     slot.update({ activeThreadId: "parent", threads: working });
     expect(selectedTab(slot, "Later")).toBe("true");
     expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
     showTab(slot, "Now");
-    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
-    showTab(slot, "In flight");
-    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(faded(slot, "Parent")).toBe(true);
   });
 
-  it("stays on Now while the selected tree still needs you", () => {
+  it("does not fade the selected tree while it still needs you", () => {
     const slot = mount(waiting);
-    showTab(slot, "Now");
     slot.update({ activeThreadId: "parent" });
     slot.update({
       threads: waiting.map((row) => (row.id === "parent" ? { ...row, status: "active" } : row)),
     });
     expect(selectedTab(slot, "Now")).toBe("true");
-    expect(slot.getByRole("link", { name: "Parent" })).toBeTruthy();
-    expect(slot.queryByRole("tab", { name: "In flight" })?.getAttribute("aria-selected")).toBe(
-      "false",
-    );
+    expect(faded(slot, "Parent")).toBe(false);
   });
 
-  it("follows when a child of the selected tree starts work", () => {
+  it("fades when a child of the selected tree starts work", () => {
     const idle = [
       thread({ id: "parent", displayTitle: "Parent" }),
       thread({ id: "child", displayTitle: "Child", parentThreadId: "parent" }),
     ];
     const slot = mount(idle);
-    showTab(slot, "Now");
     slot.update({ activeThreadId: "parent" });
+    expect(faded(slot, "Parent")).toBe(false);
     slot.update({
       threads: idle.map((row) => (row.id === "child" ? { ...row, status: "active" } : row)),
     });
-    expect(selectedTab(slot, "In flight")).toBe("true");
+    expect(selectedTab(slot, "Now")).toBe("true");
     expect(slot.getByRole("link", { name: "Parent" }).getAttribute("aria-current")).toBe("page");
-    expect(slot.getByRole("link", { name: "Child" })).toBeTruthy();
+    expect([faded(slot, "Parent"), faded(slot, "Child")]).toEqual([true, true]);
   });
 
-  it("does not leave Now for a thread that is already in flight", () => {
+  it("keeps a thread that is already in flight faded in Now", () => {
     const slot = mount(working);
-    showTab(slot, "In flight");
     slot.update({ activeThreadId: "parent" });
-    showTab(slot, "Now");
     slot.update({ threads: working.map((row) => ({ ...row })) });
     expect(selectedTab(slot, "Now")).toBe("true");
-    expect(slot.queryByRole("link", { name: "Parent" })).toBeNull();
+    expect(faded(slot, "Parent")).toBe(true);
   });
 });
 
-describe("new attention in a selected In flight tree", () => {
+describe("new attention in a selected in flight tree", () => {
   it.each([
     ["unread output", { isUnread: true }, "unread"],
     ["approval", { hasPendingInteraction: true }, "Needs you"],
@@ -405,27 +386,24 @@ describe("new attention in a selected In flight tree", () => {
     ["error", { indicator: "unread-error" }, "Failed"],
     ["failed queue", { queuedWork: "failed" }, "Not sent"],
   ] satisfies [string, Partial<PluginSidebarThread>, string][])(
-    "shows current %s indicators without changing tabs",
+    "shows current %s indicators without moving the tree",
     (_, signal, label) => {
-      const slot = mount(family("inflight"));
-      showTab(slot, "In flight");
+      const slot = mount(family());
       slot.update({ activeThreadId: "parent" });
-      const threads = family("inflight").map((row) =>
+      const threads = family().map((row) =>
         row.id === "grandchild" ? { ...row, ...signal } : row,
       );
       slot.update({ threads });
-      expectFamily(slot, true);
+      expect(familyView(slot)).toBe("faded");
       const row = slot.getByRole("link", { name: "Grandchild" }).closest(".group\\/row")!;
       if (label === "unread") expect(row.querySelector(".bg-primary")).toBeTruthy();
       else expect(row.textContent).toContain(label);
-      showTab(slot, "Now");
-      expectFamily(slot, false);
       showTab(slot, "Later");
-      expectFamily(slot, false);
+      expect(familyView(slot)).toBe("absent");
+      showTab(slot, "Now");
       // Unread output waits while the tree works; the other signals need you now.
       slot.update({ activeThreadId: "outside" });
-      showTab(slot, label === "unread" ? "In flight" : "Now");
-      expectFamily(slot, true);
+      expect(familyView(slot)).toBe(label === "unread" ? "faded" : "settled");
     },
   );
 
@@ -435,7 +413,7 @@ describe("new attention in a selected In flight tree", () => {
       checks: { failed: 0, running: 1, cancelled: 0, passed: 0, skipped: 0, failedNames: [] },
     });
     const slot = mount(
-      family("inflight"),
+      family(),
       {},
       {
         rpc: {
@@ -443,18 +421,15 @@ describe("new attention in a selected In flight tree", () => {
         },
       },
     );
-    showTab(slot, "In flight");
     await slot.findByRole("button", { name: /Open PR tab, PR #42: 1 check running/ });
     slot.update({ activeThreadId: "child" });
     summary = prSummary({ blockers: ["conflicts"] });
     await slot.behavior.emitRealtime("summaries.changed", {});
     await slot.findByRole("button", { name: /Open PR tab, PR #42: merge conflicts/ });
-    slot.update({ threads: family("inflight", true) });
-    expectFamily(slot, true);
+    slot.update({ threads: family(true) });
+    expect(familyView(slot)).toBe("faded");
     slot.update({ activeThreadId: "outside" });
-    expectFamily(slot, false);
-    showTab(slot, "Now");
-    expectFamily(slot, true);
+    expect(familyView(slot)).toBe("settled");
   });
 });
 
@@ -490,16 +465,15 @@ describe("thread list slot", () => {
     const busy = [thread({ status: "active" })];
     const first = mount(busy);
     chooseOption(first, "Machine");
-    showTab(first, "In flight");
+    showTab(first, "Later");
     chooseOption(first, "Title");
     first.lifecycle.unmount();
     mounted = undefined;
     const second = mount(busy);
     expect(optionChecked(second, "Machine")).toBe(true);
-    expect(second.getByRole("tab", { name: "In flight" }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
+    expect(second.getByRole("tab", { name: "Later" }).getAttribute("aria-selected")).toBe("true");
     expect(optionChecked(second, "Title")).toBe(true);
+    showTab(second, "Now");
     fireEvent.click(second.getByRole("button", { name: "Collapse Threads" }));
     expect(second.queryByRole("link", { name: /Prepare release/ })).toBeNull();
     second.lifecycle.unmount();
@@ -575,7 +549,6 @@ describe("thread list slot", () => {
       workspaceDisplayKind: null,
     };
     const slot = mount([thread({ status: "active", runtimeStatus: "active", environment })]);
-    showTab(slot, "In flight");
     const working = slot.getByTitle("Thread active");
     expect(working.querySelector(".sr-only")?.textContent).toBe("Working");
     expect(working.textContent).toBe("Working");
@@ -598,7 +571,6 @@ describe("thread list slot", () => {
       workspaceDisplayKind: null,
     };
     const slot = mount([thread({ environment, queuedWork: "waiting" })]);
-    showTab(slot, "In flight");
     expect(slot.queryByText("On main", { selector: ".sr-only" })).toBeNull();
     expect(slot.container.querySelector("[data-icon=Home]")).toBeNull();
     const row = slot
@@ -948,16 +920,15 @@ describe("thread list slot", () => {
       {},
       withSummaries({ t1: shared, t2: shared }),
     );
-    showTab(slot, "In flight");
     await vi.waitFor(() =>
       expect(
         slot.getAllByRole("button", { name: "Open PR tab, PR #42: awaiting review" }),
       ).toHaveLength(2),
     );
-    expect(slot.queryByRole("link", { name: "No PR" })).toBeNull();
-    showTab(slot, "Now");
-    expect(slot.getByRole("link", { name: "No PR" })).toBeTruthy();
-    expect(slot.queryAllByRole("button", { name: /^Open PR tab, PR #/ })).toHaveLength(0);
+    const noPr = slot.getByRole("link", { name: "No PR" });
+    expect(isFaded(noPr)).toBe(false);
+    expect(isFaded(slot.getByRole("link", { name: "Second" }))).toBe(true);
+    expect(noPr.closest(".group\\/row")!.querySelector('[aria-label^="Open PR tab"]')).toBeNull();
   });
   it("names pending reviewers and the checks state from github-insight", async () => {
     const slot = mount(
@@ -971,7 +942,6 @@ describe("thread list slot", () => {
         }),
       }),
     );
-    showTab(slot, "In flight");
     await slot.findByRole("button", { name: "Open PR tab, PR #42: 1 review pending" });
     expect(tip(slot, "1 review pending\nWaiting on: ana")).toBeTruthy();
     expect(tip(slot, "PR #42\nAll checks passed")).toBeTruthy();
@@ -985,7 +955,6 @@ describe("thread list slot", () => {
         {},
         { rpc: { listSummaries: () => ({ insightAvailable: true, summaries: { t1: summary } }) } },
       );
-      showTab(slot, "In flight");
       await slot.findByRole("button", { name: "Open PR tab, PR #42: checks running" });
       summary = prSummary({ blockers: [] });
       await act(async () => {
@@ -1016,7 +985,7 @@ describe("thread list slot", () => {
     await available.findByRole("button", { name: "Open PR tab, PR #42: ready to merge" });
     expect(available.queryByRole("note")).toBeNull();
   });
-  it("shows three tabs without counts and only the threads of the selected tab", async () => {
+  it("shows two tabs without counts, with in flight threads faded at the bottom of Now", async () => {
     const slot = mount(
       [
         thread({ id: "t1", displayTitle: "Idle" }),
@@ -1026,30 +995,25 @@ describe("thread list slot", () => {
       {},
       withSummaries({ t3: prSummary({ blockers: ["checks_running"] }) }),
     );
-    expect(slot.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Now",
-      "In flight",
-      "Later",
-    ]);
+    expect(slot.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Now", "Later"]);
     expect(slot.getByRole("tab", { name: "Now" }).getAttribute("aria-selected")).toBe("true");
-    await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Waits on CI" })).toBeNull());
-    expect(slot.getByRole("link", { name: "Idle" })).toBeTruthy();
-    expect(slot.queryByRole("link", { name: "Busy" })).toBeNull();
-    showTab(slot, "In flight");
-    expect(slot.getByRole("tab", { name: "In flight" }).getAttribute("aria-selected")).toBe("true");
-    expect(
-      slot
-        .getAllByRole("link", { name: /^(Idle|Busy|Waits on CI)$/ })
-        .map((link) => link.textContent),
-    ).toEqual(["Busy", "Waits on CI"]);
-    expect(slot.getByRole("tabpanel", { name: "In flight" })).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(isFaded(slot.getByRole("link", { name: "Waits on CI" }))).toBe(true),
+    );
+    expect(linkNames(slot)).toEqual(["Idle", "Busy", "Waits on CI"]);
+    expect(slot.getAllByRole("link").map(isFaded)).toEqual([false, true, true]);
+    expect(slot.getByRole("tabpanel", { name: "Now" })).toBeTruthy();
+    showTab(slot, "Later");
+    expect(slot.queryAllByRole("link")).toHaveLength(0);
   });
   it("moves between tabs with the arrow keys", () => {
     const slot = mount();
     const tablist = slot.getByRole("tablist", { name: "Threads" });
     fireEvent.keyDown(tablist, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(slot.getByRole("tab", { name: "In flight" }));
-    expect(slot.getByRole("tab", { name: "In flight" }).getAttribute("tabindex")).toBe("0");
+    expect(document.activeElement).toBe(slot.getByRole("tab", { name: "Later" }));
+    expect(slot.getByRole("tab", { name: "Later" }).getAttribute("tabindex")).toBe("0");
+    fireEvent.keyDown(tablist, { key: "Home" });
+    expect(slot.getByRole("tab", { name: "Now" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(tablist, { key: "End" });
     expect(slot.getByRole("tab", { name: "Later" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(tablist, { key: "ArrowRight" });
@@ -1059,40 +1023,34 @@ describe("thread list slot", () => {
   });
   it("names the tab state when a tab is empty", () => {
     const slot = mount([thread({ status: "active" })]);
-    expect(slot.getByText("Nothing needs you now.")).toBeTruthy();
-    showTab(slot, "In flight");
-    expect(slot.queryByText("Nothing in flight.")).toBeNull();
+    expect(slot.queryByText("Nothing needs you now.")).toBeNull();
     slot.lifecycle.unmount();
-    const idle = mount();
-    showTab(idle, "In flight");
-    expect(idle.getByText("Nothing in flight.")).toBeTruthy();
-    showTab(idle, "Later");
-    expect(idle.getByText("Nothing parked for later.")).toBeTruthy();
+    const empty = mount([]);
+    expect(empty.getByText("Nothing needs you now.")).toBeTruthy();
+    showTab(empty, "Later");
+    expect(empty.getByText("Nothing parked for later.")).toBeTruthy();
   });
-  it("moves a thread to In flight when its summary arrives", async () => {
+  it("fades a thread and moves it down when its summary shows checks running", async () => {
     const slot = mount(
       [thread({ displayTitle: "Waits on CI" })],
       {},
       withSummaries({ t1: prSummary({ blockers: ["checks_running"] }) }),
     );
-    expect(slot.getByRole("link", { name: "Waits on CI" })).toBeTruthy();
-    await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Waits on CI" })).toBeNull());
-    showTab(slot, "In flight");
-    expect(slot.getByRole("link", { name: "Waits on CI" })).toBeTruthy();
+    expect(isFaded(slot.getByRole("link", { name: "Waits on CI" }))).toBe(false);
+    await vi.waitFor(() =>
+      expect(isFaded(slot.getByRole("link", { name: "Waits on CI" }))).toBe(true),
+    );
   });
-  it("keeps a parent in flight only while its child runs", () => {
+  it("fades a parent only while its child runs", () => {
     const rows = (status: "active" | "idle") => [
       thread({ id: "t1", displayTitle: "Parent" }),
       thread({ id: "t2", displayTitle: "Child", parentThreadId: "t1", status }),
     ];
     const running = mount(rows("active"));
-    expect(running.queryByRole("link", { name: "Parent" })).toBeNull();
-    showTab(running, "In flight");
-    expect(running.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(isFaded(running.getByRole("link", { name: "Parent" }))).toBe(true);
     running.lifecycle.unmount();
     const done = mount(rows("idle"));
-    showTab(done, "Now");
-    expect(done.getByRole("link", { name: "Parent" })).toBeTruthy();
+    expect(isFaded(done.getByRole("link", { name: "Parent" }))).toBe(false);
   });
   it("offers no archived selection and leaves archived threads out of every tab", () => {
     const slot = mount([
@@ -1103,7 +1061,7 @@ describe("thread list slot", () => {
     expect(screen.queryByRole("menuitemradio", { name: "Archived" })).toBeNull();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(slot.getByRole("link", { name: "Active work" })).toBeTruthy();
-    for (const tab of ["Now", "In flight", "Later"]) {
+    for (const tab of ["Now", "Later"]) {
       showTab(slot, tab);
       expect(slot.queryByRole("link", { name: "Old work" })).toBeNull();
     }
@@ -1134,7 +1092,6 @@ describe("thread list slot", () => {
 
     it("loads the summaries again and shows the new badge", async () => {
       const slot = mount([thread()], {}, answers(summariesOf(pending(1)), summariesOf(pending(2))));
-      showTab(slot, "In flight");
       await slot.findByRole("button", { name: "Open PR tab, PR #42: 1 review pending" });
 
       announce();
@@ -1155,7 +1112,6 @@ describe("thread list slot", () => {
         {},
         answers(summariesOf(pending(1)), older, summariesOf(pending(2))),
       );
-      showTab(slot, "In flight");
       await slot.findByRole("button", { name: "Open PR tab, PR #42: 1 review pending" });
       announce();
       await vi.waitFor(() => expect(summaryLoads(slot)).toHaveLength(2));
@@ -1203,9 +1159,9 @@ describe("thread list slot", () => {
 
       await slot.behavior.emitRealtime("summaries.changed", {});
 
-      await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Opened a PR" })).toBeNull());
-      showTab(slot, "In flight");
-      expect(slot.getByRole("link", { name: "Opened a PR" })).toBeTruthy();
+      await vi.waitFor(() =>
+        expect(isFaded(slot.getByRole("link", { name: "Opened a PR" }))).toBe(true),
+      );
       expect(slot.getByRole("button", { name: /^Open PR tab, PR #42/ })).toBeTruthy();
     });
 
@@ -1218,11 +1174,12 @@ describe("thread list slot", () => {
       await vi.waitFor(() => expect(summaryLoads(slot)).toHaveLength(1));
 
       await slot.behavior.emitRealtime("summaries.changed", {});
-      await vi.waitFor(() => expect(slot.queryByRole("link", { name: "Opened a PR" })).toBeNull());
+      const faded = () => isFaded(slot.getByRole("link", { name: "Opened a PR" }));
+      await vi.waitFor(() => expect(faded()).toBe(true));
       finishOlder(none);
       await new Promise((resolve) => setTimeout(resolve, 20));
 
-      expect(slot.queryByRole("link", { name: "Opened a PR" })).toBeNull();
+      expect(faded()).toBe(true);
     });
   });
 
@@ -1238,7 +1195,6 @@ describe("thread list slot", () => {
         isUnread: true,
       }),
     ]);
-    showTab(slot, "In flight");
     const busy = slot.getByRole("link", { name: "Busy" }).closest<HTMLElement>(".group\\/row")!;
     expect(slot.container.querySelector("[data-provider-glyph]")).toBeNull();
     expect(slot.container.querySelectorAll("[data-attention-glyph]")).toHaveLength(2);
@@ -1258,7 +1214,6 @@ describe("thread list slot", () => {
       thread({ status: "active", runtimeStatus: "active" }),
       thread({ id: "child", displayTitle: "Child", parentThreadId: "t1" }),
     ]);
-    showTab(slot, "In flight");
     fireEvent.click(slot.getByRole("button", { name: "Collapse Prepare release" }));
     expect(slot.queryByRole("link", { name: "Child" })).toBeNull();
     const expand = slot.getByRole("button", { name: "Expand Prepare release" });
@@ -1272,7 +1227,6 @@ describe("thread list slot", () => {
     "animates the %s lifecycle state",
     (status) => {
       const slot = mount([thread({ status, runtimeStatus: status })]);
-      showTab(slot, "In flight");
       expect(slot.container.querySelector("[data-running-glyph]")).toBeTruthy();
     },
   );
@@ -1298,7 +1252,6 @@ describe("thread list slot", () => {
         },
       }),
     ]);
-    showTab(slot, "In flight");
     expect(
       slot.getByTitle("Background work running").querySelector("[data-running-glyph]"),
     ).toBeTruthy();
@@ -1474,24 +1427,35 @@ describe("thread list slot", () => {
       expect(link(slot)).toBeTruthy();
     });
 
-    it("follows a selected parked thread from Later to In flight when it starts work", async () => {
+    it("keeps a selected parked thread in Later, faded, when it starts work", async () => {
       const slot = mount([thread()], {}, withParks({ ids: ["t1"] }));
       showTab(slot, "Later");
       await vi.waitFor(() => expect(link(slot)).toBeTruthy());
       slot.update({ activeThreadId: "t1" });
+      expect(isFaded(link(slot)!)).toBe(false);
       slot.update({ threads: [thread({ status: "active" })] });
 
-      expect(slot.getByRole("tab", { name: "In flight" }).getAttribute("aria-selected")).toBe(
-        "true",
-      );
+      expect(slot.getByRole("tab", { name: "Later" }).getAttribute("aria-selected")).toBe("true");
       expect(link(slot)?.getAttribute("aria-current")).toBe("page");
+      expect(isFaded(link(slot)!)).toBe(true);
+    });
+
+    it("follows a selected parked thread from Now to Later when it starts work", async () => {
+      const slot = mount([thread({ hasPendingInteraction: true })], {}, withParks({ ids: ["t1"] }));
+      await vi.waitFor(() => expect(calls(slot, "listParks")).toHaveLength(1));
+      await act(async () => {});
+      slot.update({ activeThreadId: "t1" });
+      expect(link(slot)).toBeTruthy();
+      slot.update({ threads: [thread({ status: "active" })] });
+
+      expect(slot.getByRole("tab", { name: "Later" }).getAttribute("aria-selected")).toBe("true");
+      expect(link(slot)?.getAttribute("aria-current")).toBe("page");
+      expect(isFaded(link(slot)!)).toBe(true);
     });
 
     it("keeps a parked thread with unread output in Later", async () => {
       const slot = mount([thread({ isUnread: true })], {}, withParks({ ids: ["t1"] }));
       await vi.waitFor(() => expect(link(slot)).toBeNull());
-      showTab(slot, "In flight");
-      expect(link(slot)).toBeNull();
       showTab(slot, "Later");
       expect(link(slot)).toBeTruthy();
     });
