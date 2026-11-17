@@ -27,7 +27,7 @@ import { JUMPED_RING } from "./controls";
 import { useShowFiles } from "./files-jump";
 import { NewCommentGlowContext, useNewComment, useNewCommentGlowState } from "./new-comment-glow";
 import "./new-comment.css";
-import { OverviewSection } from "./overview-section";
+import { OverviewSection, READABLE_COLUMN } from "./overview-section";
 import { PrCommentComposer } from "./pr-comment-composer";
 import { SUCCESS_TEXT } from "./text-tones";
 
@@ -118,19 +118,22 @@ export function TimelineSections({
   threadId,
   refreshedAt,
   scrollRoot,
-  between,
+  after,
 }: {
   threadId: string;
   refreshedAt: number;
   scrollRoot: RefObject<HTMLElement | null>;
-  between?: ReactNode;
+  /** Shown below the conversation, at full width. */
+  after?: ReactNode;
 }) {
   const timeline = useTimeline(threadId, refreshedAt);
   return (
     <>
-      <DescriptionSection timeline={timeline} />
-      {between}
-      <ConversationTimeline threadId={threadId} timeline={timeline} scrollRoot={scrollRoot} />
+      <div className={READABLE_COLUMN}>
+        <DescriptionSection timeline={timeline} />
+        <ConversationTimeline threadId={threadId} timeline={timeline} scrollRoot={scrollRoot} />
+      </div>
+      {after}
     </>
   );
 }

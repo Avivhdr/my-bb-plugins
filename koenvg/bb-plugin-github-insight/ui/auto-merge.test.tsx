@@ -7,7 +7,10 @@ import type { ActionResult, InsightResult, rpcContract } from "../contract";
 import type { PrInsight } from "../core/overview";
 import { forgetInsights } from "./pr-availability";
 
-type Methods = Pick<typeof rpcContract, "getInsight" | "refresh" | "runPrAction" | "getTimeline">;
+type Methods = Pick<
+  typeof rpcContract,
+  "getInsight" | "refresh" | "runPrAction" | "getTimeline" | "getReview"
+>;
 const app = await loadPluginApp(() => import("../app"));
 const tab = app.threadPanelActions.find((action) => action.id === "pr")!;
 
@@ -58,6 +61,7 @@ function renderTab(
         refresh: async () => result,
         runPrAction: run,
         getTimeline: () => ({ kind: "no_pr" as const }),
+        getReview: () => new Promise<never>(() => {}),
       },
     },
   );

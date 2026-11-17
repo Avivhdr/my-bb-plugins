@@ -9,7 +9,6 @@ import type { TimelineEvent } from "../core/timeline";
 import { postIntent } from "./command-intents";
 import { GITHUB_COMMANDS } from "./commands";
 import { forgetInsights } from "./pr-availability";
-import { forgetSubTabs } from "./pr-sub-tab";
 
 class Unobserved {
   observe() {}
@@ -19,6 +18,8 @@ class Unobserved {
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", Unobserved);
   vi.stubGlobal("IntersectionObserver", Unobserved);
+  // jsdom does not scroll.
+  Element.prototype.scrollIntoView ??= () => {};
 });
 
 const app = await loadPluginApp(() => import("../app"));
@@ -27,7 +28,7 @@ const prTab = app.threadPanelActions.find((action) => action.id === "pr")!;
 afterEach(() => {
   cleanup();
   forgetInsights();
-  forgetSubTabs();
+  vi.restoreAllMocks();
 });
 
 const emptyReview: ReviewResult = {
@@ -120,222 +121,29 @@ function renderPanel(threadId = "thr_1", handlers: Handlers = {}) {
 
 type Slot = ReturnType<typeof renderPanel>;
 
-function subTab(slot: Slot, name: "Overview" | "Files") {
-  return slot.getByRole("tab", { name });
-}
-
-function selected(slot: Slot) {
-  return slot.getByRole("tab", { selected: true }).querySelector("[data-tab-label]")?.textContent;
-}
-
 function reviewCalls(slot: Slot) {
   return slot.inspection.rpcCalls.filter((call) => call.method === "getReview");
 }
 
-describe("PR panel", () => {
-  it("registers one flush PR action and no Review action", () => {
-    expect(app.threadPanelActions.map(({ id }) => id)).toEqual(["pr"]);
-    expect(prTab).toMatchObject({ title: "PR", layout: "flush" });
-  });
+const SECTION_ORDER = ["Description", "Conversation", "Files", "Status", "Checks"];
 
-  it("starts a new PR tab on Overview", async () => {
-    const slot = renderPanel();
-
-    await slot.findAllByText("No pull request for this thread");
-
-    expect(selected(slot)).toBe("Overview");
-    expect(slot.getByRole("tabpanel").id).toBe(
-      subTab(slot, "Overview").getAttribute("aria-controls"),
-    );
-  });
-
-  it("switches to Files on a click", async () => {
-    const slot = renderPanel();
-
-    fireEvent.click(subTab(slot, "Files"));
-
-    expect(selected(slot)).toBe("Files");
-    expect(await slot.findByText("0 files changed")).toBeTruthy();
-  });
-
-  it("switches with the arrow keys", () => {
-    const slot = renderPanel();
-
-    fireEvent.keyDown(subTab(slot, "Overview"), { key: "ArrowRight" });
-
-    expect(selected(slot)).toBe("Files");
-    expect(document.activeElement).toBe(subTab(slot, "Files"));
-  });
-
-  it("does not read the PR files before Files shows", async () => {
-    const slot = renderPanel();
-
-    await slot.findAllByText("No pull request for this thread");
-
-    expect(reviewCalls(slot)).toEqual([]);
-  });
-
-  it("keeps Files mounted and hidden while Overview shows", async () => {
-    const slot = renderPanel();
-    fireEvent.click(subTab(slot, "Files"));
-    const files = await slot.findByText("0 files changed");
-
-    fireEvent.click(subTab(slot, "Overview"));
-
-    expect(files.isConnected).toBe(true);
-    expect(files.closest("[role=tabpanel]")?.hasAttribute("hidden")).toBe(true);
-    fireEvent.click(subTab(slot, "Files"));
-    expect(slot.getByText("0 files changed")).toBe(files);
-    expect(reviewCalls(slot)).toHaveLength(1);
-  });
-
-  it("keeps the selected sub-tab after an unmount", async () => {
-    const first = renderPanel();
-    fireEvent.click(subTab(first, "Files"));
-    first.lifecycle.unmount();
-
-    const second = renderPanel();
-
-    expect(selected(second)).toBe("Files");
-  });
-
-  it("keeps the sub-tab of each thread", () => {
-    const first = renderPanel("thr_a");
-    fireEvent.click(subTab(first, "Files"));
-    first.lifecycle.unmount();
-
-    expect(selected(renderPanel("thr_b"))).toBe("Overview");
-  });
-
-  it("selects the sub-tab that an intent names", async () => {
-    const slot = renderPanel();
-
-    act(() => postIntent("thr_1", "pr", "show-files"));
-    expect(selected(slot)).toBe("Files");
-
-    act(() => postIntent("thr_1", "pr", "show-overview"));
-    expect(selected(slot)).toBe("Overview");
-  });
-
-  it("does not read the PR files when an Overview open meets a tab remembered on Files", async () => {
-    const first = renderPanel("thr_remembered");
-    fireEvent.click(subTab(first, "Files"));
-    first.lifecycle.unmount();
-    postIntent("thr_remembered", "pr", "show-overview");
-
-    const second = renderPanel("thr_remembered");
-
-    expect(selected(second)).toBe("Overview");
-    await second.findAllByText("No pull request for this thread");
-    expect(reviewCalls(second)).toEqual([]);
-  });
-
-  it("selects the sub-tab of an intent posted before it mounts", () => {
-    postIntent("thr_1", "pr", "show-files");
-
-    expect(selected(renderPanel())).toBe("Files");
-  });
-
-  it.each(["Overview", "Files"] as const)("shows the no PR state on %s", async (name) => {
-    const slot = renderPanel("thr_1", { getReview: () => ({ kind: "no_pr" }) });
-
-    fireEvent.click(subTab(slot, name));
-
-    const panel = slot.getByRole("tabpanel");
-    expect(await within(panel).findByText("No pull request for this thread")).toBeTruthy();
-  });
-
-  it.each(["Overview", "Files"] as const)("shows loading on %s", (name) => {
-    const never = () => new Promise<never>(() => {});
-    const slot = renderPanel("thr_1", { getInsight: never, getReview: never });
-
-    fireEvent.click(subTab(slot, name));
-
-    expect(within(slot.getByRole("tabpanel")).getByText("Loading pull request…")).toBeTruthy();
-  });
-
-  it.each(["Overview", "Files"] as const)("shows the read error on %s", async (name) => {
-    const slot = renderPanel("thr_1", {
-      getInsight: () => ({ kind: "error", message: "gh not logged in" }),
-      getReview: () => ({ kind: "error", message: "gh not logged in" }),
-    });
-
-    fireEvent.click(subTab(slot, name));
-
-    const panel = slot.getByRole("tabpanel");
-    expect(await within(panel).findByText("gh not logged in")).toBeTruthy();
-    expect(within(panel).getByRole("button", { name: /Retry/ })).toBeTruthy();
-  });
-});
-
-function runCommand(id: string, threadId = "thr_1") {
-  const found = GITHUB_COMMANDS.find((entry) => entry.id === id)!;
-  void found.run({ threadId, projectId: null, openPanel: () => true });
+function sectionOrder(slot: Slot) {
+  return Array.from(slot.container.querySelectorAll("section[aria-label]"))
+    .map((section) => section.getAttribute("aria-label")!)
+    .filter((label) => SECTION_ORDER.includes(label));
 }
 
-describe("PR panel palette commands", () => {
-  it("Submit review opens a closed PR tab on Files with the Submit panel", async () => {
-    runCommand("submit-review");
-    const slot = renderPanel();
-
-    expect(selected(slot)).toBe("Files");
-    expect(await slot.findByRole("region", { name: "Submit review" })).toBeTruthy();
+function scrolledIntoView() {
+  const scrolled: Element[] = [];
+  vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+    scrolled.push(this);
   });
+  return scrolled;
+}
 
-  it("Submit review switches an open PR tab from Overview to Files", async () => {
-    const slot = renderPanel();
-    await slot.findAllByText("No pull request for this thread");
-
-    act(() => runCommand("submit-review"));
-
-    expect(selected(slot)).toBe("Files");
-    expect(await slot.findByRole("region", { name: "Submit review" })).toBeTruthy();
-  });
-
-  it("does not open the Submit panel again after a remount", async () => {
-    runCommand("submit-review");
-    const first = renderPanel();
-    await first.findByRole("region", { name: "Submit review" });
-    fireEvent.click(first.getByRole("button", { name: "Submit review" }));
-    first.lifecycle.unmount();
-
-    const second = renderPanel();
-
-    await second.findByText("0 files changed");
-    expect(second.queryByRole("region", { name: "Submit review" })).toBeNull();
-  });
-
-  it.each(["next-comment", "previous-comment", "open-pr-files"])(
-    "%s switches an open PR tab to Files",
-    async (id) => {
-      const slot = renderPanel();
-      await slot.findAllByText("No pull request for this thread");
-
-      act(() => runCommand(id));
-
-      expect(selected(slot)).toBe("Files");
-      expect(await slot.findByText("0 files changed")).toBeTruthy();
-    },
-  );
-
-  it.each(["open-pr-tab", "refresh-pr"])("%s switches an open PR tab to Overview", (id) => {
-    const slot = renderPanel();
-    fireEvent.click(subTab(slot, "Files"));
-
-    act(() => runCommand(id));
-
-    expect(selected(slot)).toBe("Overview");
-  });
-
-  it("Open PR on GitHub keeps the sub-tab", () => {
-    const slot = renderPanel();
-    fireEvent.click(subTab(slot, "Files"));
-
-    act(() => runCommand("open-pr-on-github"));
-
-    expect(selected(slot)).toBe("Files");
-  });
-});
+function labels(elements: readonly Element[]) {
+  return elements.map((element) => element.getAttribute("aria-label"));
+}
 
 const openPr = (refreshedAt: number): InsightResult => ({
   kind: "ok",
@@ -382,30 +190,165 @@ function timelineReads(slot: Slot) {
   return slot.inspection.rpcCalls.filter((call) => call.method === "getTimeline");
 }
 
-describe("PR panel Overview conversation", () => {
-  it("shows the file count and an unresolved threads dot on the Files tab", async () => {
-    const pr = openPr(1);
-    const withThreads: InsightResult =
-      pr.kind === "ok"
-        ? {
-            ...pr,
-            insight: {
-              ...pr.insight,
-              pr: { ...pr.insight.pr, changedFiles: 18 },
-              blockers: [{ code: "unresolved_threads", text: "1 unresolved thread" }],
-            },
-          }
-        : pr;
-    const slot = renderPanel("thr_1", { getInsight: () => withThreads });
-
-    const files = subTab(slot, "Files");
-    await vi.waitFor(() => expect(files.textContent).toContain("18"));
-    expect(files.querySelector("[title='Unresolved review threads']")).toBeTruthy();
-    expect(document.getElementById(files.getAttribute("aria-describedby")!)?.textContent).toBe(
-      "18 changed files, unresolved review threads",
-    );
+describe("PR panel", () => {
+  it("registers one flush PR action and no Review action", () => {
+    expect(app.threadPanelActions.map(({ id }) => id)).toEqual(["pr"]);
+    expect(prTab).toMatchObject({ title: "PR", layout: "flush" });
   });
 
+  it("shows one page with no sub-tabs", async () => {
+    const slot = renderPanel("thr_1", { getInsight: () => openPr(1) });
+
+    expect(await slot.findByText("0 files changed")).toBeTruthy();
+    expect(slot.queryByRole("tablist")).toBeNull();
+    expect(slot.queryByRole("tab")).toBeNull();
+  });
+
+  it("reads top to bottom: description, conversation, files, then the merge status", async () => {
+    const slot = renderPanel("thr_1", {
+      getInsight: () => openPr(1),
+      getTimeline: () => timelineOf([]),
+    });
+
+    await slot.findByText("0 files changed");
+    await slot.findByText("No conversation yet");
+
+    expect(sectionOrder(slot)).toEqual(SECTION_ORDER);
+    expect(slot.getByRole("heading", { level: 2 }).textContent).toBe("Split the panel");
+  });
+
+  it("shows the branch and diff size in the status part, not under the title", async () => {
+    const slot = renderPanel("thr_1", { getInsight: () => openPr(1) });
+
+    const status = await slot.findByRole("region", { name: "Status" });
+
+    expect(within(status).getByText("feature → main")).toBeTruthy();
+    expect(within(slot.getByTestId("pr-header")).queryByText("feature → main")).toBeNull();
+  });
+
+  it("reads the PR files once, with the page", async () => {
+    const slot = renderPanel("thr_1", { getInsight: () => openPr(1) });
+
+    await slot.findByText("0 files changed");
+
+    expect(reviewCalls(slot)).toHaveLength(1);
+  });
+
+  it("shows no files without a PR", async () => {
+    const slot = renderPanel();
+
+    expect(await slot.findByText("No pull request for this thread")).toBeTruthy();
+    expect(slot.queryByRole("region", { name: "Files" })).toBeNull();
+  });
+
+  it("shows loading", () => {
+    const never = () => new Promise<never>(() => {});
+    const slot = renderPanel("thr_1", { getInsight: never, getReview: never });
+
+    expect(slot.getByText("Loading pull request…")).toBeTruthy();
+  });
+
+  it("shows the read error with Retry", async () => {
+    const slot = renderPanel("thr_1", {
+      getInsight: () => ({ kind: "error", message: "gh not logged in" }),
+    });
+
+    expect(await slot.findByText("gh not logged in")).toBeTruthy();
+    expect(slot.getByRole("button", { name: /Retry/ })).toBeTruthy();
+  });
+
+  it("scrolls to the files on a show-files intent and back to the top on show-overview", async () => {
+    const scrolled = scrolledIntoView();
+    const slot = renderPanel("thr_1", { getInsight: () => openPr(1) });
+    await slot.findByText("0 files changed");
+    const page = slot.container.querySelector<HTMLElement>("[data-diff-scroll-area]")!;
+
+    act(() => postIntent("thr_1", "pr", "show-files"));
+    expect(labels(scrolled)).toEqual(["Files"]);
+
+    page.scrollTop = 500;
+    act(() => postIntent("thr_1", "pr", "show-overview"));
+    expect(page.scrollTop).toBe(0);
+  });
+
+  it("scrolls to the files once they show when the intent came first", async () => {
+    const scrolled = scrolledIntoView();
+    postIntent("thr_1", "pr", "show-files");
+
+    const slot = renderPanel("thr_1", { getInsight: () => openPr(1) });
+
+    await slot.findByText("0 files changed");
+    expect(labels(scrolled)).toEqual(["Files"]);
+  });
+});
+
+function runCommand(id: string, threadId = "thr_1") {
+  const found = GITHUB_COMMANDS.find((entry) => entry.id === id)!;
+  void found.run({ threadId, projectId: null, openPanel: () => true });
+}
+
+function renderOpenPr() {
+  return renderPanel("thr_1", { getInsight: () => openPr(1) });
+}
+
+describe("PR panel palette commands", () => {
+  it("Submit review opens a closed PR tab with the Submit panel", async () => {
+    runCommand("submit-review");
+    const slot = renderOpenPr();
+
+    expect(await slot.findByRole("region", { name: "Submit review" })).toBeTruthy();
+  });
+
+  it("Submit review opens the Submit panel in an open PR tab", async () => {
+    const slot = renderOpenPr();
+    await slot.findByText("0 files changed");
+
+    act(() => runCommand("submit-review"));
+
+    expect(await slot.findByRole("region", { name: "Submit review" })).toBeTruthy();
+  });
+
+  it("does not open the Submit panel again after a remount", async () => {
+    runCommand("submit-review");
+    const first = renderOpenPr();
+    await first.findByRole("region", { name: "Submit review" });
+    fireEvent.click(first.getByRole("button", { name: "Submit review" }));
+    first.lifecycle.unmount();
+
+    const second = renderOpenPr();
+
+    await second.findByText("0 files changed");
+    expect(second.queryByRole("region", { name: "Submit review" })).toBeNull();
+  });
+
+  it("Open PR files scrolls to the files", async () => {
+    const scrolled = scrolledIntoView();
+    const slot = renderOpenPr();
+    await slot.findByText("0 files changed");
+
+    act(() => runCommand("open-pr-files"));
+
+    expect(labels(scrolled)).toEqual(["Files"]);
+  });
+
+  it.each(["next-comment", "previous-comment", "refresh-pr", "open-pr-on-github"])(
+    "%s keeps the scroll position",
+    async (id) => {
+      const scrolled = scrolledIntoView();
+      const slot = renderOpenPr();
+      await slot.findByText("0 files changed");
+      const page = slot.container.querySelector<HTMLElement>("[data-diff-scroll-area]")!;
+      page.scrollTop = 500;
+
+      act(() => runCommand(id));
+
+      expect(page.scrollTop).toBe(500);
+      expect(scrolled).toEqual([]);
+    },
+  );
+});
+
+describe("PR panel Overview conversation", () => {
   it("shows the conversation below the PR status", async () => {
     const slot = renderPanel("thr_1", {
       getInsight: () => openPr(1),
@@ -493,7 +436,7 @@ function jumped(slot: Slot) {
 }
 
 describe("PR panel review link", () => {
-  it("shows Files and highlights the first thread of the review", async () => {
+  it("scrolls to the first thread of the review and highlights it", async () => {
     const slot = renderWithReview([
       outdatedThread("T1", "C1", false),
       outdatedThread("T2", "C2", false),
@@ -502,7 +445,6 @@ describe("PR panel review link", () => {
 
     fireEvent.click(await slot.findByRole("button", { name: "2 inline comments" }));
 
-    expect(selected(slot)).toBe("Files");
     await vi.waitFor(() => expect(jumped(slot)).toEqual(["T2"]));
   });
 

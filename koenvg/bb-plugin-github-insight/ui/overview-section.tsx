@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+/** A centered reading column for the text parts of the PR view. */
+export const READABLE_COLUMN = "mx-auto flex w-full max-w-[760px] min-w-0 flex-col gap-6 px-4";
+
 export function OverviewSection({
   label,
   summary,

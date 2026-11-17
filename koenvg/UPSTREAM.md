@@ -35,6 +35,8 @@ The root `package.json`, `bun.lock`, `.bun-version`, `.oxlintrc.json` and `.oxfm
 
 - `bb-plugin-github-insight`: review rows show the PR's lines added and removed (`additions` and `deletions` in `github/review-queue-query.ts`), and "Re-review" sends a follow-up prompt to an idle review thread of a reviewed PR that changed since (`buildReReviewPrompt` in `core/review-prompt.ts`, `reReview` in `queue/review-queue-service.ts`, kv `re-review:` in `queue/re-reviews.ts`, the `reReview` RPC in `contract.ts` and `server.ts`, the row in `ui/review-queue-list.tsx`). Both settings boxes now hold everything after the Steps (How to review, Summary rules, Rules; kv `v: 2`), and Re-review has its own "Re-review prompt" settings section (kv `re-review-instructions`, the `prompt` field of `getReviewInstructions` and `setReviewInstructions`, `ui/review-prompt-settings.tsx`, `app.tsx`).
 
+- `bb-plugin-github-insight`: the PR tab has no Overview and Files sub-tabs. It is one page in one scroll container: title, description, conversation, the diff, then a Status section (branch, lines, file count, merge status card), reviewers, and checks. `ui/pr-panel.tsx` passes the scroll container to `FilesTab` as `scrollRoot`; `ui/pr-sub-tab.ts` and `ui/pr-tab-summary.ts` are gone. "Next comment", "Previous comment", and "Refresh PR" no longer post `show-files` or `show-overview` (`ui/commands.ts`). Files touched: `ui/pr-panel.tsx`, `ui/overview-tab.tsx`, `ui/timeline.tsx`, `ui/files-tab.tsx`, `ui/overview-section.tsx`, `ui/commands.ts`, and their tests.
+
 Re-apply these after a sync if upstream still lacks them.
 
 ## Set up a checkout

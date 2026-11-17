@@ -148,12 +148,12 @@ describe("GitHub palette commands", () => {
     ["open-pr-tab", "show-overview", null],
     ["open-pr-files", "show-files", null],
     ["submit-review", "show-files", ["files", "submit"]],
-    ["next-comment", "show-files", ["files", "next-comment"]],
-    ["previous-comment", "show-files", ["files", "previous-comment"]],
-    ["refresh-pr", "show-overview", ["overview", "refresh"]],
+    ["next-comment", null, ["files", "next-comment"]],
+    ["previous-comment", null, ["files", "previous-comment"]],
+    ["refresh-pr", null, ["overview", "refresh"]],
     ["open-pr-on-github", null, ["overview", "open-on-github"]],
   ] as const)(
-    "%s opens the PR tab once, without params, on sub-tab %s, then posts %s",
+    "%s opens the PR tab once, without params, scrolls to %s, then posts %s",
     (id, subTab, followUp) => {
       const threadId = `thr_${id}`;
       const subTabs = listen(threadId, "pr");
@@ -174,14 +174,14 @@ describe("GitHub palette commands", () => {
     },
   );
 
-  it("posts the sub-tab before the Files action", () => {
+  it("shows the files before the Submit action", () => {
     const order: string[] = [];
     renderHook(() => useCommandIntent("thr_order", "pr", (intent) => order.push(intent)));
     renderHook(() => useCommandIntent("thr_order", "files", (intent) => order.push(intent)));
 
-    void command("next-comment").run(context("thr_order").ctx);
+    void command("submit-review").run(context("thr_order").ctx);
 
-    expect(order).toEqual(["show-files", "next-comment"]);
+    expect(order).toEqual(["show-files", "submit"]);
   });
 
   it("leaves no intent behind when the host declines to open the tab", () => {

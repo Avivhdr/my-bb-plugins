@@ -7,7 +7,7 @@ import type { PrInsight } from "../core/overview";
 import type { PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { forgetInsights } from "./pr-availability";
 
-type ReadMethods = Pick<typeof rpcContract, "getInsight" | "refresh">;
+type ReadMethods = Pick<typeof rpcContract, "getInsight" | "refresh" | "getReview">;
 
 const app = await loadPluginApp(() => import("../app"));
 const banner = app.composerCustomizations.find((c) => c.id === "pr-insight")!.banners![0]!;
@@ -55,7 +55,12 @@ function fixture(initial: InsightResult = ok()) {
   const read = vi.fn(async (_input: { threadId: string }): Promise<InsightResult> => current);
   const refresh = vi.fn(async (): Promise<InsightResult> => current);
   const options = {
-    rpc: { getInsight: read, refresh, getTimeline: () => ({ kind: "no_pr" as const }) },
+    rpc: {
+      getInsight: read,
+      refresh,
+      getTimeline: () => ({ kind: "no_pr" as const }),
+      getReview: () => new Promise<never>(() => {}),
+    },
     composer: { scope: { kind: "thread" as const, threadId: "a" } },
   };
   const chat = renderSlot<object, ReadMethods>(banner, {}, options);

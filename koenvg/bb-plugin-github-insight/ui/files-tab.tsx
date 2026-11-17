@@ -1,5 +1,13 @@
 import type { PrImageBasis } from "../core/pr-image-basis";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, SendToAgentResult } from "../contract";
 import { commentStops } from "../core/comment-stops";
@@ -141,13 +149,18 @@ function useReviewCommands(
 interface FilesTabProps {
   threadId: string;
   jump: FilesJumpRequest | null;
+  /**
+   * The scroll container the diff lives in, when the files are part of a longer page. Without it
+   * the files scroll on their own.
+   */
+  scrollRoot?: RefObject<HTMLElement | null>;
 }
 
-export function FilesTab({ threadId, jump }: FilesTabProps) {
-  return <FilesTabContent key={threadId} threadId={threadId} jump={jump} />;
+export function FilesTab({ threadId, jump, scrollRoot }: FilesTabProps) {
+  return <FilesTabContent key={threadId} threadId={threadId} jump={jump} scrollRoot={scrollRoot} />;
 }
 
-function FilesTabContent({ threadId, jump }: FilesTabProps) {
+function FilesTabContent({ threadId, jump, scrollRoot }: FilesTabProps) {
   const {
     result,
     refreshing,
@@ -159,10 +172,11 @@ function FilesTabContent({ threadId, jump }: FilesTabProps) {
     removeCommentDraft,
   } = useReview(threadId);
   const requests = useReviewCommands(threadId, result);
+  const Padded = scrollRoot === undefined ? ScrollPadded : InlinePadded;
   if (result === null)
     return (
       <Padded>
-        <Notice>Loading pull request…</Notice>
+        <Notice>{scrollRoot === undefined ? "Loading pull request…" : "Loading files…"}</Notice>
       </Padded>
     );
   if (result.kind === "no_pr") {
@@ -215,6 +229,7 @@ function FilesTabContent({ threadId, jump }: FilesTabProps) {
           refresh={refresh}
           requests={requests}
           jump={jump}
+          scrollRoot={scrollRoot}
         />
       </CommentDraftsProvider>
     </ThreadActionsProvider>
@@ -240,6 +255,7 @@ interface ReviewContentProps {
   refresh: () => void;
   requests: ReviewCommandRequests;
   jump: FilesJumpRequest | null;
+  scrollRoot: RefObject<HTMLElement | null> | undefined;
 }
 
 function ReviewContent({
@@ -260,6 +276,7 @@ function ReviewContent({
   refresh,
   requests,
   jump,
+  scrollRoot,
 }: ReviewContentProps) {
   const [showResolved, setShowResolved] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(
@@ -274,7 +291,8 @@ function ReviewContent({
   const openIds = useMemo(() => openThreads(threads).map(({ thread }) => thread.id), [threads]);
   const { selection, selectedIds, deselect } = useThreadSelectionState(openIds);
   const agent = useSendToAgent(threadId, deselect);
-  const scrollArea = useRef<HTMLDivElement>(null);
+  const ownScrollArea = useRef<HTMLDivElement>(null);
+  const scrollArea = scrollRoot ?? ownScrollArea;
   const glow = useNewCommentGlowState(threadId, newCommentIds, scrollArea);
   const newCommentHolders = useMemo(
     () => commentHolders(threads, glow.glowingIds),
@@ -365,7 +383,7 @@ function ReviewContent({
   const viewed = usePrViewed(threadId, files, viewedMarks, newCommentHolders.paths);
   const canAddComment = head.state === "OPEN" && draftsByCommit.older.length === 0;
   return (
-    <div className="flex h-full flex-col">
+    <div className={cn("flex flex-col", scrollRoot === undefined && "h-full")}>
       <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border px-3 py-2 text-xs">
         <span className="mr-1 text-muted-foreground">{filesChangedText(files)}</span>
         {viewed.counts.markable > 0 && (
@@ -419,7 +437,11 @@ function ReviewContent({
       <ThreadSelectionContext.Provider value={selection}>
         <NewCommentGlowContext.Provider value={glow}>
           <JumpMarkContext.Provider value={navigation.jumpMark}>
-            <div ref={scrollArea} data-diff-scroll-area className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              ref={scrollRoot === undefined ? ownScrollArea : undefined}
+              data-diff-scroll-area={scrollRoot === undefined ? "" : undefined}
+              className={cn(scrollRoot === undefined && "min-h-0 flex-1 overflow-y-auto")}
+            >
               <div ref={content}>
                 <OlderCommentDrafts drafts={draftsByCommit.older} headOid={head.oid} />
                 <OutdatedThreads threads={visible.outdated} />
@@ -615,6 +637,10 @@ function ShowResolvedSwitch({
   );
 }
 
-function Padded({ children }: { children: ReactNode }) {
+function ScrollPadded({ children }: { children: ReactNode }) {
   return <div className="h-full overflow-y-auto p-3">{children}</div>;
+}
+
+function InlinePadded({ children }: { children: ReactNode }) {
+  return <div className="p-3">{children}</div>;
 }

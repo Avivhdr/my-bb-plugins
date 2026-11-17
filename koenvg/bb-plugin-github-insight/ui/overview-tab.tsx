@@ -15,8 +15,7 @@ import { AutoMergeButton } from "./auto-merge-button";
 import { BranchUpdateButton, PullReminder } from "./branch-update-button";
 import { MergeActionButton } from "./merge-action-button";
 import { useShowFiles } from "./files-jump";
-import { OverviewSection } from "./overview-section";
-import { useReportSummary } from "./pr-tab-summary";
+import { OverviewSection, READABLE_COLUMN } from "./overview-section";
 import { SUCCESS_TEXT } from "./text-tones";
 import { TimelineSections } from "./timeline";
 import { useInsight } from "./use-insight";
@@ -74,29 +73,37 @@ function usePrCommands(
 interface OverviewTabProps {
   threadId: string;
   scrollRoot: RefObject<HTMLElement | null>;
+  /** The diff, shown after the conversation and before the merge status. */
+  files?: ReactNode;
 }
 
-export function OverviewTab({ threadId, scrollRoot }: OverviewTabProps) {
-  return <OverviewTabContent key={threadId} threadId={threadId} scrollRoot={scrollRoot} />;
+export function OverviewTab({ threadId, scrollRoot, files }: OverviewTabProps) {
+  return (
+    <OverviewTabContent key={threadId} threadId={threadId} scrollRoot={scrollRoot} files={files} />
+  );
 }
 
-function OverviewTabContent({ threadId, scrollRoot }: OverviewTabProps) {
+function OverviewTabContent({ threadId, scrollRoot, files }: OverviewTabProps) {
   const insight = useInsight(threadId);
   const [branchUpdated, setBranchUpdated] = useState(false);
   usePrCommands(threadId, insight);
-  useReportedSummary(insight.result);
   return (
     <PrOverview
       insight={insight}
       noPrText="No pull request for this thread"
       controls={{ threadId, onBranchUpdated: () => setBranchUpdated(true) }}
       notice={branchUpdated && <PullReminder dismiss={() => setBranchUpdated(false)} />}
-      renderDetails={(details, refreshedAt) => (
+      renderDetails={(status, refreshedAt) => (
         <TimelineSections
           threadId={threadId}
           refreshedAt={refreshedAt}
           scrollRoot={scrollRoot}
-          between={details}
+          after={
+            <>
+              {files}
+              {status}
+            </>
+          }
         />
       )}
     />
@@ -120,7 +127,8 @@ interface PrOverviewProps {
   noPrText: string;
   controls: ThreadControls | null;
   notice?: ReactNode;
-  renderDetails?: (details: ReactNode, refreshedAt: number) => ReactNode;
+  /** Places the status part (branch, merge status, reviewers, checks) in the page. */
+  renderDetails?: (status: ReactNode, refreshedAt: number) => ReactNode;
 }
 
 export function PrOverview({
@@ -130,17 +138,34 @@ export function PrOverview({
   notice,
   renderDetails = (details) => details,
 }: PrOverviewProps) {
-  if (result === null) return <Notice>Loading pull request…</Notice>;
-  if (result.kind === "no_pr") return <Notice>{noPrText}</Notice>;
+  if (result === null)
+    return (
+      <Padded>
+        <Notice>Loading pull request…</Notice>
+      </Padded>
+    );
+  if (result.kind === "no_pr")
+    return (
+      <Padded>
+        <Notice>{noPrText}</Notice>
+      </Padded>
+    );
   if (result.kind === "error") {
     return (
-      <RefreshError message={result.message} refreshedAt={null} retry={refresh} busy={refreshing} />
+      <Padded>
+        <RefreshError
+          message={result.message}
+          refreshedAt={null}
+          retry={refresh}
+          busy={refreshing}
+        />
+      </Padded>
     );
   }
   const status = prStatusView(result.insight);
   return (
-    <div className="mx-auto flex w-full max-w-[760px] min-w-0 flex-col gap-6">
-      <div className="flex flex-col gap-4">
+    <div className="flex w-full min-w-0 flex-col gap-6 py-4">
+      <div className={READABLE_COLUMN}>
         <PrHeader
           pr={result.insight.pr}
           lifecycle={status.lifecycle}
@@ -157,11 +182,14 @@ export function PrOverview({
             busy={refreshing}
           />
         )}
-        {notice}
-        <MergeStatusCard insight={result.insight} status={status} controls={controls} />
       </div>
       {renderDetails(
-        <>
+        <div className={READABLE_COLUMN}>
+          <OverviewSection label="Status">
+            <PrMeta pr={result.insight.pr} />
+            {notice}
+            <MergeStatusCard insight={result.insight} status={status} controls={controls} />
+          </OverviewSection>
           {!reviewersInCard(status.blockers) && (
             <ReviewerList reviewers={result.insight.reviewers} />
           )}
@@ -169,22 +197,15 @@ export function PrOverview({
             checks={result.insight.checks}
             shownInCard={checkStatusesInCard(status.blockers)}
           />
-        </>,
+        </div>,
         result.refreshedAt,
       )}
     </div>
   );
 }
 
-function useReportedSummary(result: ReturnType<typeof useInsight>["result"]) {
-  const report = useReportSummary();
-  const files = result?.kind === "ok" ? result.insight.pr.changedFiles : null;
-  const unresolvedThreads =
-    result?.kind === "ok" &&
-    result.insight.blockers.some(({ code }) => code === "unresolved_threads");
-  useEffect(() => {
-    report(files === null ? null : { files, unresolvedThreads });
-  }, [report, files, unresolvedThreads]);
+function Padded({ children }: { children: ReactNode }) {
+  return <div className={cn(READABLE_COLUMN, "py-4")}>{children}</div>;
 }
 
 const REVIEW_BLOCKERS: ReadonlySet<Blocker["code"]> = new Set([
@@ -269,7 +290,6 @@ function PrHeader({
         )}
         {age}
       </div>
-      <PrMeta pr={pr} />
     </div>
   );
 }

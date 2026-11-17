@@ -6,7 +6,6 @@ import type { ActionResult, InsightResult } from "../contract";
 import type { PrInsight } from "../core/overview";
 import { GITHUB_COMMANDS } from "./commands";
 import { forgetInsights, rememberInsight } from "./pr-availability";
-import { forgetSubTabs } from "./pr-sub-tab";
 
 const app = await loadPluginApp(() => import("../app"));
 const banner = app.composerCustomizations.find((c) => c.id === "pr-insight")!.banners![0]!;
@@ -60,6 +59,7 @@ function fixture(initial: InsightResult = ok()) {
       refresh,
       runPrAction: write,
       getTimeline: () => ({ kind: "no_pr" as const }),
+      getReview: () => new Promise<never>(() => {}),
     },
     composer: { scope: { kind: "thread" as const, threadId: "flow" } },
   };
@@ -101,7 +101,6 @@ afterEach(() => {
   mounted.length = 0;
   cleanup();
   forgetInsights();
-  forgetSubTabs();
   openPanel.mockClear();
 });
 
@@ -366,24 +365,22 @@ describe("palette merge without side-panel navigation", () => {
     },
   );
 
-  it("keeps the Files sub-tab of the PR tab through merge progress", async () => {
+  it("keeps the scroll position of the PR tab through merge progress", async () => {
     const f = fixture();
     const pending = deferred<ActionResult>();
     f.write.mockImplementation(() => pending.promise);
     f.mountBanner();
     const panel = f.mountTab();
     await screen.findByText("Ready to merge");
-    fireEvent.click(within(panel.container).getByRole("tab", { name: "Files" }));
-    const selectedTab = () =>
-      within(panel.container).getByRole("tab", { selected: true }).querySelector("[data-tab-label]")
-        ?.textContent;
+    const page = panel.container.querySelector<HTMLElement>("[data-diff-scroll-area]")!;
+    page.scrollTop = 500;
 
     await merge();
     await confirm();
-    expect(selectedTab()).toBe("Files");
+    expect(page.scrollTop).toBe(500);
     await act(async () => pending.resolve({ kind: "ok" }));
 
-    expect(selectedTab()).toBe("Files");
+    expect(page.scrollTop).toBe(500);
     expect(openPanel).not.toHaveBeenCalled();
   });
 

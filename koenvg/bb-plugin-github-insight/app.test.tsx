@@ -161,7 +161,7 @@ const insight = ok({
 function insightMethods(slot: { inspection: { rpcCalls: { method: string }[] } }) {
   return slot.inspection.rpcCalls
     .map((call) => call.method)
-    .filter((method) => method !== "getTimeline");
+    .filter((method) => method !== "getTimeline" && method !== "getReview");
 }
 
 function renderTab(
@@ -248,7 +248,7 @@ describe("PR tab", () => {
     expect(slot.queryByRole("heading", { name: "Pull request merged" })).toBeNull();
   });
 
-  it("shows the header, the merge status with the reviewers, and the checks in this order", async () => {
+  it("shows the files, then the merge status with the reviewers, then the checks", async () => {
     const slot = renderTab(insight);
 
     await slot.findByText("#25337");
@@ -256,7 +256,7 @@ describe("PR tab", () => {
     const sections = slot
       .getAllByRole("region")
       .map((section) => section.getAttribute("aria-label"));
-    expect(sections).toEqual(["Merge status", "Checks"]);
+    expect(sections).toEqual(["Files", "Status", "Merge status", "Checks"]);
   });
 
   it("lists the merge blockers in order", async () => {

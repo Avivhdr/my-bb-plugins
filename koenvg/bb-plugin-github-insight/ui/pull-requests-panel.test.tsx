@@ -412,38 +412,38 @@ describe("Pull Requests card actions", () => {
   });
 });
 
-describe("PR overview side panel", () => {
-  const prInsight = (overrides: Partial<PrInsight> = {}): InsightResult => ({
-    kind: "ok",
-    refreshedAt: Date.now(),
-    error: null,
-    insight: {
-      pr: {
-        number: 15,
-        title: "Add rate limits",
-        state: "open",
-        url: "https://github.com/acme/api/pull/15",
-        headOid: "head-15",
-        headRefName: "rate-limits",
-        headOwner: null,
-        isCrossRepository: false,
-        baseRefName: "main",
-        author: "alice",
-        additions: 12,
-        deletions: 3,
-        changedFiles: 2,
-      },
-      mergeAction: { kind: "none" },
-      mergeQueue: null,
-      autoMergeAction: { kind: "none" },
-      canUpdateBranch: false,
-      blockers: [],
-      reviewers: [],
-      checks: [],
-      ...overrides,
+const prInsight = (overrides: Partial<PrInsight> = {}): InsightResult => ({
+  kind: "ok",
+  refreshedAt: Date.now(),
+  error: null,
+  insight: {
+    pr: {
+      number: 15,
+      title: "Add rate limits",
+      state: "open",
+      url: "https://github.com/acme/api/pull/15",
+      headOid: "head-15",
+      headRefName: "rate-limits",
+      headOwner: null,
+      isCrossRepository: false,
+      baseRefName: "main",
+      author: "alice",
+      additions: 12,
+      deletions: 3,
+      changedFiles: 2,
     },
-  });
+    mergeAction: { kind: "none" },
+    mergeQueue: null,
+    autoMergeAction: { kind: "none" },
+    canUpdateBranch: false,
+    blockers: [],
+    reviewers: [],
+    checks: [],
+    ...overrides,
+  },
+});
 
+describe("PR overview side panel", () => {
   function overview(slot: ReturnType<typeof renderPanel>) {
     return slot.findByRole("complementary", { name: "Pull request overview" });
   }
@@ -484,7 +484,7 @@ describe("PR overview side panel", () => {
     ]);
   });
 
-  it("shows blockers, reviewers, and checks, with the Overview and Files tabs", async () => {
+  it("shows blockers, reviewers, checks, and the files on one page", async () => {
     const slot = renderPanel("pr/acme/api/15", () => ok(view([queuePr()])), {
       getInsight: () =>
         prInsight({
@@ -507,11 +507,8 @@ describe("PR overview side panel", () => {
     expect(within(panel).getByRole("list", { name: "Reviewers" }).textContent).toContain("bob");
     expect(within(panel).getByRole("region", { name: "Checks" }).textContent).toContain("1 passed");
     expect(within(panel).getByText(/^Updated/)).toBeTruthy();
-    expect(
-      within(panel)
-        .getAllByRole("tab")
-        .map((tab) => tab.querySelector("[data-tab-label]")?.textContent),
-    ).toEqual(["Overview", "Files"]);
+    expect(within(panel).getByRole("region", { name: "Files" })).toBeTruthy();
+    expect(within(panel).queryByRole("tab")).toBeNull();
   });
 
   it("marks the selected row and closes the overview when you click it again", async () => {
@@ -2131,13 +2128,13 @@ describe("Activity tab", () => {
     );
   });
 
-  it("opens an inline reply on the Files tab of the PR view", async () => {
-    const slot = renderActivity("activity/pr/acme/api/7/inline/PRRC_2");
+  it("opens an inline reply in the files of the PR view", async () => {
+    const slot = renderActivity("activity/pr/acme/api/7/inline/PRRC_2", {
+      getInsight: () => prInsight(),
+    });
 
     const panel = await slot.findByRole("complementary", { name: "Pull request overview" });
-    expect(within(panel).getByRole("tab", { name: /Files/ }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
+    expect(await within(panel).findByRole("region", { name: "Files" })).toBeTruthy();
     expect(slot.inspection.rpcCalls.map((call) => call.method)).toContain("getReview");
   });
 

@@ -9,7 +9,7 @@ import { forgetInsights } from "./pr-availability";
 
 type Methods = Pick<
   typeof rpcContract,
-  "getInsight" | "refresh" | "runPrAction" | "localCommitsAhead" | "getTimeline"
+  "getInsight" | "refresh" | "runPrAction" | "localCommitsAhead" | "getTimeline" | "getReview"
 >;
 const app = await loadPluginApp(() => import("../app"));
 const tab = app.threadPanelActions.find((action) => action.id === "pr")!;
@@ -69,6 +69,7 @@ function renderTab({
         runPrAction: run,
         localCommitsAhead,
         getTimeline: () => ({ kind: "no_pr" as const }),
+        getReview: () => new Promise<never>(() => {}),
       },
     },
   );
@@ -237,6 +238,7 @@ describe("Update branch", () => {
           runPrAction: async () => ({ kind: "ok" }),
           localCommitsAhead: async () => ({ kind: "unknown" }),
           getTimeline: () => ({ kind: "no_pr" }),
+          getReview: () => new Promise<never>(() => {}),
         },
         composer: { scope: { kind: "thread", threadId: "thr_update" } },
       },

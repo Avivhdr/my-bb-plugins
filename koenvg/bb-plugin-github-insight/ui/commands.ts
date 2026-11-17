@@ -45,15 +45,15 @@ export const GITHUB_COMMANDS: readonly PluginCommandRegistration[] = [
     tab: "files",
     intent: "submit",
   }),
-  prTabCommand("next-comment", "GitHub: Next comment", SHOW_FILES, {
+  prTabCommand("next-comment", "GitHub: Next comment", {
     tab: "files",
     intent: "next-comment",
   }),
-  prTabCommand("previous-comment", "GitHub: Previous comment", SHOW_FILES, {
+  prTabCommand("previous-comment", "GitHub: Previous comment", {
     tab: "files",
     intent: "previous-comment",
   }),
-  prTabCommand("refresh-pr", "GitHub: Refresh PR", SHOW_OVERVIEW, {
+  prTabCommand("refresh-pr", "GitHub: Refresh PR", {
     tab: "overview",
     intent: "refresh",
   }),

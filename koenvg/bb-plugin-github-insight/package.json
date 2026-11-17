@@ -19,7 +19,7 @@
   },
   "bb": {
     "name": "GitHub Insight",
-    "description": "Shows the merge blockers, reviewers, and checks of a thread's pull request in a PR tab, its conversation and diff in Overview and Files sub-tabs, and your review requests in a Pull Requests panel.",
+    "description": "Shows the merge blockers, reviewers, and checks of a thread's pull request in a PR tab, with its description, conversation, and diff on one page, and your review requests in a Pull Requests panel.",
     "branding": {
       "icon": "GitPullRequest"
     },
